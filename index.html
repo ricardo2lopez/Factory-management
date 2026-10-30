@@ -141,6 +141,40 @@ tr.total td{font-weight:600;border-top:1px solid var(--line2)} tr.total2 td{font
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 @media (max-width:560px){.co{display:none}.stat.hideS{display:none}#map{height:52vh}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* advisor coach cards */
+.coach{border:1px solid var(--line);border-left:4px solid var(--line2);border-radius:var(--r);padding:12px;background:var(--surface);display:grid;gap:8px;min-width:0}
+.coach.bad{border-left-color:var(--bad)} .coach.warn{border-left-color:var(--warn)} .coach.ok{border-left-color:var(--good)}
+.coach .hd{display:flex;align-items:center;gap:10px}
+.coach .hd .av{width:34px;height:34px}
+.coach .hd h4{margin:0;font-family:var(--f-display);font-size:18px}
+.coach .hd .nm{font-size:12px;color:var(--muted)}
+.coach .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:2px}
+.coach p{margin:0;font-size:14px;line-height:1.45}
+.coach .concept{background:var(--surface2);border-radius:6px;padding:8px 10px}
+.coach details>summary{cursor:pointer;font-size:13px;color:var(--accent);list-style:none}
+.coach details>summary::-webkit-details-marker{display:none}
+.mxs{display:flex;flex-wrap:wrap;gap:6px}
+.mx{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);background:var(--surface2);border-radius:16px;padding:4px 10px;font-size:13px;color:var(--ink);cursor:pointer;font-family:inherit}
+.mx b{font-family:var(--f-mono);font-weight:500}
+.mx:hover,.mx:focus-visible{border-color:var(--accent)}
+.copts{display:grid;gap:6px}
+.copt{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.copt.rec{border-color:var(--accent);background:var(--accent-soft)}
+.copt .ttl{font-weight:600;font-size:14px}
+.copt .why{grid-column:1/-1;font-size:13px;color:var(--muted);line-height:1.4}
+.copt.rec .why{color:var(--ink)}
+.copt .tag{font-size:11px;color:var(--accent);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.grade{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:14px}
+.grade:last-child{border-bottom:0}
+.grade .alt{grid-column:2;font-size:13px;color:var(--muted)}
+[data-mx]{cursor:pointer}
+.kpis [data-mx]:hover,.tile[data-mx]:hover{color:var(--accent)}
+.tile[data-mx]{cursor:pointer}
+details.coach{display:block} details.coach>*+*{margin-top:8px} details.coach>summary{list-style:none;cursor:pointer} details.coach>summary::-webkit-details-marker{display:none} details.coach[open]>summary .small{display:none}
+@media (max-width:600px){.row>.btn{white-space:normal;text-align:left;max-width:100%}.kpis .v,.kpis .tg{white-space:normal}.modal .segs{display:flex;max-width:100%;overflow-x:auto}.modal .segs button{white-space:nowrap;flex:0 0 auto}}
+.grade>.pill{align-self:start}
+.coachbar{display:flex;gap:8px;align-items:center;justify-content:space-between}
 </style>
 </head>
 <body>
@@ -705,11 +739,19 @@ const VALID = { lease: ['accept', 'negotiate', 'buy', 'monthly'], startup: ['bas
 function decide(st, id, opt, params) {
   const D = st.decisions.find(x => x.id === id); if (!D) return { err: 'gone' };
   if (VALID[D.type] && !VALID[D.type].includes(opt)) return { err: 'bad' };
+  // context kept so the advisor can grade the decision at month end
+  const top = D.recs.find(x => x.opt != null && x.who === 'mentor') || D.recs.find(x => x.opt != null) || null;
+  const ctx = { cw: st.kpi ? Math.round(st.kpi.cashWeeks * 10) / 10 : null, bn: st.kpi ? st.kpi.bottleneck : null, bnU: st.kpi ? Math.round(st.kpi.bnUtil * 100) / 100 : null };
+  let q = null;
+  if (D.type === 'quote') {
+    const o = st.opps.find(x => x.id === D.d.opp);
+    if (o) { const coo = D.recs.find(x => x.area === 'coo' && x.opt && x.opt.lead); q = { opp: o.id, rt: o.rt, qty: o.qty, mode: o.mode, cost: Math.round(oppCost(st, o, 'sea').total), sug: coo ? coo.opt.lead : suggestLead(st, o.rt, o.qty, false), req: o.req, price: params && +params.price || null, lead: params && Math.round(+params.lead) || null }; }
+  }
   const r = HANDLERS[D.type](st, D, opt, params || {});
   if (r && r.err) return r;
   st.decisions = st.decisions.filter(x => x !== D);
   D.chosen = opt; D.followed = D.recs.filter(x => JSON.stringify(x.opt) === JSON.stringify(opt)).map(x => x.who);
-  (st.decided || (st.decided = [])).unshift({ w: st.w, type: D.type, opt: typeof opt === 'string' ? opt : 'custom', followed: D.followed });
+  (st.decided || (st.decided = [])).unshift({ w: st.w, type: D.type, opt: typeof opt === 'string' ? opt : 'custom', followed: D.followed, rec: top ? { who: top.who, opt: top.opt, k: top.k, p: top.p } : null, ctx, q });
   if (st.decided.length > 100) st.decided.length = 100;
   for (const X of st.decisions) buildRecs(st, X);
   return r || { ok: true };
@@ -2111,7 +2153,7 @@ root.RF = {
   stagesFor, needCats, landed, bom, mktPrice, oppCost, suggestLead, winProb, buyOptions, stationCap, needH, biHours,
   marketWage, marketSalary, lvl, invFree, eqCount, eqUp, facKw, posUsed, sbaLimit, gradeInfo, ebitdaTTM, revenueTTM,
   balanceAt, cashFlow, movesRange, PL, valuation, equity, debt, orderETA, loadAhead, INCOME, ACC, B, hasRole, K,
-  monthsActive, techsAt, avgMorale, monthlyComments, BUILD, buildingPrice, setupMissing, setupCost, setupMonthly, mentorPlan, SETUP_REQ, bbSuggestions, bbRelevance, weeklyRackCap, BBK, CUSTS, refreshRecs: st => { for (const D of st.decisions) buildRecs(st, D); }, interp, LV_EFF, ownerCap, payBeforeArrival, ROLES_LIST: Object.keys(ROLES)
+  monthsActive, techsAt, avgMorale, monthlyComments, BUILD, buildingPrice, setupMissing, setupCost, setupMonthly, mentorPlan, SETUP_REQ, bbSuggestions, bbRelevance, weeklyRackCap, BBK, CUSTS, refreshRecs: st => { for (const D of st.decisions) buildRecs(st, D); }, interp, LV_EFF, LV_DEF, PROF, who, cfRange, ownerCap, payBeforeArrival, ROLES_LIST: Object.keys(ROLES)
 };
 })(typeof window !== 'undefined' ? window : globalThis);
 
@@ -2502,13 +2544,746 @@ window.I18N = {
   vrNoXR: ['Este navegador no tiene WebXR. Para VR abre el juego en el navegador del Meta Quest.', 'This browser has no WebXR. For VR, open the game in the Meta Quest browser.'], vrFail: ['No se pudo iniciar VR: {e}', 'Could not start VR: {e}'], vrExitPreview: ['Salir de vista 3D', 'Exit 3D view'],
   followed: ['seguiste a', 'you followed'], decisionsLog: ['Tus decisiones', 'Your decisions'],
   cloud: ['Nube', 'Cloud'], cloudHelp: ['Con tu código sigues la misma partida en el celular y en el Quest. Se guarda solo cada semana.', 'With your code you continue the same game on your phone and on the Quest. It saves by itself every week.'],
-  cloudNone: ['La nube solo funciona en la versión publicada en Netlify.', 'Cloud save only works on the version hosted on Netlify.'],
+  cloudNone: ['No pude conectar con la nube. Revisa tu internet y vuelve a abrir el menú.', 'Could not reach the cloud. Check your internet and open the menu again.'], cloudChecking: ['Conectando con la nube…', 'Connecting to the cloud…'],
   cloudCreate: ['Crear mi código', 'Create my code'], cloudUse: ['Usar código', 'Use code'], cloudEnter: ['¿Ya tienes partida? Escribe tu código', 'Already have a game? Enter your code'],
   cloudYour: ['Tu código', 'Your code'], cloudWrite: ['Anótalo. En el otro aparato abre el juego, Menú → Nube → Usar código.', 'Write it down. On the other device open the game, Menu → Cloud → Use code.'],
   cloudOff: ['Desconectar este aparato', 'Disconnect this device'], cloudNotFound: ['No hay partida con ese código.', 'No game with that code.'], cloudBad: ['Código inválido. Ejemplo: RACK-7KQ2M', 'Invalid code. Example: RACK-7KQ2M'],
   cloudLoaded: ['Partida cargada de la nube', 'Game loaded from the cloud'], cloudNewer: ['Había una partida más reciente en la nube; la cargué.', 'There was a newer game in the cloud; it was loaded.'],
-  cloudOk: ['Guardado en la nube', 'Saved to the cloud'], cloudErr: ['Sin conexión: se guarda en este aparato y se sube después.', 'Offline: saved on this device and uploaded later.'], cloudSaveNow: ['Subir ahora', 'Upload now']
+  cloudOk: ['Guardado en la nube', 'Saved to the cloud'], cloudErr: ['Sin conexión: se guarda en este aparato y se sube después.', 'Offline: saved on this device and uploaded later.'], cloudSaveNow: ['Subir ahora', 'Upload now'],
+  coTab: ['Lectura del asesor', 'Advisor reading'], coTitle: ['Lectura del asesor', 'Advisor reading'], coListen: ['Escuchar', 'Listen'], coMore: ['Ver más', 'See more'],
+  coTapHint: ['Toca cualquier número con ⓘ y te explico qué es.', 'Tap any number with ⓘ and I will explain it.'],
+  coRec: ['Te recomiendo', 'I recommend'], coGo: ['Ir', 'Go'], coDo: ['Hacerlo', 'Do it'], coNoAction: ['No requiere acción', 'No action needed'], coDone: ['Hecho', 'Done'],
+  coWhat: ['¿Qué significa?', 'What does it mean?'], coConcept: ['Qué significa', 'What it means'], coNow: ['Qué está pasando', 'What is happening'], coTrend: ['Para dónde va', 'Where it is heading'], coOptions: ['Tus 3 opciones', 'Your 3 options'],
+  coWhatIs: ['Qué es', 'What it is'], coCalc: ['Cómo se calcula, con tus números', 'How it is calculated, with your numbers'], coRef: ['¿Está bien o mal?', 'Is it good or bad?'], coMove: ['Por qué se mueve', 'Why it moves'], coBack: ['Volver a la junta', 'Back to the meeting'],
+  coIntro: ['Primero cómo te fue con tus decisiones, luego qué pasó en cada tema, para dónde va y tus opciones.', 'First how your decisions went, then what happened in each area, where it is heading and your options.'],
+  coGrades: ['Tus decisiones del mes', 'Your decisions this month'], coNoGrades: ['No tomaste decisiones este mes.', 'You made no decisions this month.'], coPending: ['{n} decisiones todavía sin resultado; las califico cuando se sepa.', '{n} decisions have no result yet; I will grade them once we know.'],
+  coAlt: ['El asesor hubiera hecho', 'The advisor would have done'], g_good: ['Buena', 'Good'], g_ok: ['Regular', 'Fair'], g_bad: ['Mala', 'Poor'],
+  coGradeSay: ['Tus decisiones del mes: {a} buenas, {b} regulares y {c} malas.', 'Your decisions this month: {a} good, {b} fair and {c} poor.'],
+  sev_ok: ['Bien', 'Good'], sev_warn: ['Atención', 'Watch'], sev_bad: ['Urgente', 'Urgent'], sev_info: ['Info', 'Info'],
+  mx_cash: ['Efectivo', 'Cash'], mx_runway: ['Semanas de efectivo', 'Weeks of cash'], mx_ccc: ['Ciclo de efectivo', 'Cash cycle'], mx_margin: ['Margen por rack', 'Margin per rack'], mx_ebitda: ['EBITDA', 'EBITDA'],
+  mx_otd: ['A tiempo', 'On time'], mx_backlog: ['Cartera', 'Backlog'], mx_fpy: ['Calidad a la primera', 'First pass yield'], mx_bn: ['Cuello de botella', 'Bottleneck'],
+  coVrTab: ['Asesor', 'Advisor'], coVrOpen: ['Ver la lectura completa del asesor', 'See the full advisor reading'], coVrNext: ['Toca ▶ para ver cada tema con tus 3 opciones.', 'Tap ▶ to see each area with your 3 options.'],
+  coVrSales: ['Esto se aplica en tus próximas cotizaciones, en el panel de decisiones.', 'This applies to your next quotes, in the decision panel.'],
+  plWalk: ['Recorrido guiado del estado de resultados', 'Guided walk through the income statement'], plWalkHint: ['El asesor te explica cada renglón, de la venta a la utilidad neta. También puedes tocar cualquier renglón con ⓘ.', 'The advisor explains every line, from sales to net income. You can also tap any line with ⓘ.'],
+  plShare: ['% de tu venta', '% of your sales'], plWhy: ['Por qué se movió', 'Why it moved'], plStep: ['Paso {i} de {n}', 'Step {i} of {n}'], plOfSales: ['de tu venta', 'of your sales'],
+  plStory: ['La historia del mes', 'The story of the month'], plPrev: ['Anterior', 'Back'], plNext: ['Siguiente', 'Next'], plToStory: ['Ver la historia', 'See the story']
 };
+
+</script>
+<script>
+/* RackForge advisor coach: turns the numbers into a story, a lesson and three options.
+   Pure functions over the game state. The UI passes a small context with text helpers. */
+(function (root) {
+'use strict';
+const E = root.RF;
+const sum = (a, f) => a.reduce((s, x) => s + (f ? f(x) : x), 0);
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+
+/* ---------- the nine numbers that run a rack plant ---------- */
+function facts(st) {
+  const k = st.kpi || {};
+  const c = E.cal(st.w), mi = c.mi, m0 = Math.max(0, mi - 2);
+  const M = E.movesRange(st, m0, mi);
+  const byType = ty => sum(E.INCOME.filter(a => E.ACC[a] === ty), a => M[a] || 0);
+  const rev = -((M.sales || 0) + (M.deduct || 0));
+  const cogs = byType('C'), sga = byType('S');
+  const ebitda = rev - cogs - sga + (M.depx || 0);
+  const H = st.hist.filter(h => E.cal(h.w).mi >= m0);
+  const nW = Math.max(1, H.length), mFrac = nW / 4.33;
+  const delivered = sum(H, h => h.delivered);
+  const gp = rev - cogs;
+  const perRack = delivered ? gp / delivered : null;
+  const gm = rev > 0 ? gp / rev : null;
+  // mix of turnkey work changes what a healthy margin looks like
+  const w0 = H.length ? H[0].w : st.w;
+  const recent = st.orders.filter(o => o.delivered > 0 && (o.status === 'open' || (o.doneW || 0) >= w0));
+  const revAll = sum(recent, o => o.delivered * o.price), revTurn = sum(recent.filter(o => o.mode === 'turn'), o => o.delivered * o.price);
+  const turnShare = revAll > 0 ? revTurn / revAll : 0;
+  const gmTarget = 0.30 * (1 - turnShare) + 0.07 * turnShare;
+  const days = nW * 7, mat = M.mat || 0;
+  const ar = E.B(st, 'ar'), inv = E.B(st, 'inv'), ap = -E.B(st, 'ap');
+  const cap365 = x => clamp(x, 0, 365);
+  const dso = rev > 0 ? cap365(ar / (rev / days)) : null;
+  const dio = mat > 0 ? cap365(inv / (mat / days)) : null;
+  const dpo = mat > 0 ? cap365(Math.max(0, ap) / (mat / days)) : null;
+  const ccc = dso == null ? null : dso + (dio || 0) - (dpo || 0);
+  const hl = st.hist.length;
+  const cash = E.B(st, 'cash'), cash4 = hl >= 5 ? st.hist[hl - 5].cash : null;
+  const locFree = st.loc && st.loc.open ? Math.max(0, st.loc.limit - st.loc.bal) : 0;
+  const slope = cash4 == null ? null : (cash - cash4) / 4;
+  const LA = E.loadAhead(st, true);
+  let blW = 0, blStation = null;
+  for (const s of E.STAGES) {
+    if (!(LA[s] > 0)) continue;
+    const cp = E.stationCap(st, s, true).std;
+    const w = cp > 0 ? LA[s] / cp : 99;
+    if (w > blW) { blW = w; blStation = s; }
+  }
+  const last4 = st.hist.slice(-4), prev8 = st.hist.slice(-12, -4);
+  const rate = (A, n, d) => { const D = sum(A, d); return D ? sum(A, n) / D : null; };
+  const otd4 = rate(last4, h => h.ontime, h => h.delivered), otdP = rate(prev8, h => h.ontime, h => h.delivered);
+  const fpy4 = rate(last4, h => h.fpyPass, h => h.biDone), fpyP = rate(prev8, h => h.fpyPass, h => h.biDone);
+  const snaps = st.months.slice(-3);
+  return {
+    mi, cash, cash4, slope, burn: k.fixedWeek || 0, locFree,
+    runway: (k.fixedWeek || 0) > 0 ? (cash + locFree) / k.fixedWeek : 99,
+    ar, inv, ap, dso, dio, dpo, ccc,
+    rev, cogs, sga, gp, gm, gmTarget, turnShare, perRack, delivered, mFrac,
+    ebitdaM: ebitda / mFrac, revM: rev / mFrac, sgaM: sga / mFrac, racksM: delivered / mFrac,
+    ebitdaHist: snaps.map(s => s.ebitda),
+    otd: k.otd == null ? null : k.otd, otd4, otdP, backlogV: k.backlogV || 0, backlogU: k.backlogUnits || 0, blW, blStation,
+    fpy: k.fpy == null ? null : k.fpy, fpy4, fpyP, doa: k.doaRate || 0,
+    bn: k.bottleneck || null, bnU: k.bnUtil || 0, LA,
+    morale: k.morale == null ? 75 : k.morale, techs: st.emps.filter(e => e.role === 'tech').length
+  };
+}
+
+/* ---------- helpers ---------- */
+const sevRank = { bad: 0, warn: 1, ok: 2, info: 3 };
+function styleOf(st) { return (st.mentor && st.mentor.prof) || 'exp'; }
+const STYLE_PREF = { exp: 'safe', inn: 'growth', proc: 'safe', mej: 'cost', lid: 'people' };
+function pickRec(st, opts, sev) {
+  // when something is wrong the fix comes first; otherwise the advisor leans to his style
+  if (sev === 'bad' || sev === 'warn') { const i = opts.findIndex(o => o.fix); return i >= 0 ? i : 0; }
+  const i = opts.findIndex(o => o.style === STYLE_PREF[styleOf(st)]);
+  return i >= 0 ? i : 0;
+}
+function finish(st, topic) {
+  topic.options = topic.options.filter(Boolean).slice(0, 3);
+  const r = pickRec(st, topic.options, topic.sev);
+  topic.options.forEach((o, i) => o.rec = i === r);
+  const m = (st.coach && st.coach.m && st.coach.m[topic.id]) || 0;
+  topic.learned = m >= 3 && topic.sev === 'ok';
+  return topic;
+}
+function speaker(st, role) { return st.emps.some(e => e.role === role) ? role : 'mentor'; }
+
+/* ---------- topic: money ---------- */
+function topicCash(st, F, X) {
+  const { L, money } = X;
+  const rw = Math.max(0, Math.round(F.runway));
+  const sev = F.cash < 0 || F.runway < 4 ? 'bad' : F.runway < 8 ? 'warn' : 'ok';
+  const cccTxt = F.ccc == null
+    ? L('Todavía no hay ventas suficientes para medir el ciclo de efectivo.', 'There are not enough sales yet to measure the cash cycle.')
+    : L(`Tu dinero tarda ${Math.round(F.ccc)} días en regresar: el cliente tarda ${Math.round(F.dso)} días en pagarte, el material se queda ${Math.round(F.dio || 0)} días en tu planta y el proveedor te da ${Math.round(F.dpo || 0)} días de crédito.`,
+        `Your money takes ${Math.round(F.ccc)} days to come back: customers take ${Math.round(F.dso)} days to pay, material sits ${Math.round(F.dio || 0)} days in your plant and suppliers give you ${Math.round(F.dpo || 0)} days of credit.`);
+  const now = L(`Tienes ${money(F.cash)} en el banco${F.locFree ? ` y ${money(F.locFree)} disponibles en tu línea de crédito` : ''}. Tus gastos fijos son de unos ${money(F.burn)} por semana, así que te alcanza para ${rw > 52 ? 'más de un año' : rw + ' semanas'}. `,
+    `You have ${money(F.cash)} in the bank${F.locFree ? ` and ${money(F.locFree)} available on your credit line` : ''}. Your fixed costs are about ${money(F.burn)} per week, so you can last ${rw > 52 ? 'more than a year' : rw + ' weeks'}. `) + cccTxt;
+  let trend;
+  if (F.slope == null) trend = L('Necesito unas semanas más de historia para decirte la tendencia.', 'I need a few more weeks of history to tell you the trend.');
+  else if (F.slope < -100) {
+    const zero = F.cash > 0 ? Math.round(F.cash / -F.slope) : 0;
+    trend = L(`En las últimas 4 semanas el efectivo bajó ${money(-F.slope * 4)}. Si sigue igual, ${zero > 0 ? `te quedas sin efectivo en unas ${zero} semanas` : 'ya estás en números rojos'}. Ojo: en racks es normal que baje mientras compras material para un pedido grande; lo importante es que regrese cuando el cliente pague.`,
+      `In the last 4 weeks cash went down ${money(-F.slope * 4)}. If it keeps going like this, ${zero > 0 ? `you run out of cash in about ${zero} weeks` : 'you are already in the red'}. Note: in racks it is normal for cash to drop while you buy material for a big order; what matters is that it comes back when the customer pays.`);
+  } else trend = L(`En las últimas 4 semanas el efectivo subió ${money(F.slope * 4)}. Vas bien: el negocio está generando dinero, no solo utilidad en papel.`,
+    `In the last 4 weeks cash went up ${money(F.slope * 4)}. Good: the business is generating money, not just profit on paper.`);
+  const concept = L('El efectivo es el oxígeno de la empresa: puedes tener utilidad y aun así quebrar si se te acaba el dinero antes de que el cliente pague. Las semanas de efectivo te dicen cuánto aguantas si no entra nada. El ciclo de conversión de efectivo (CCC) son los días que tu dinero está atrapado entre pagar al proveedor y cobrarle al cliente: CCC = días que tarda en pagarte el cliente + días de inventario − días de crédito del proveedor. En racks los insumos son carísimos, así que cada día del ciclo cuesta mucho dinero.',
+    'Cash is the oxygen of the company: you can show a profit and still go bankrupt if money runs out before the customer pays. Weeks of cash tell you how long you last if nothing comes in. The cash conversion cycle (CCC) is the number of days your money is trapped between paying the supplier and collecting from the customer: CCC = days the customer takes to pay + days of inventory − days of supplier credit. Rack parts are very expensive, so every day of the cycle costs a lot of money.');
+  const openAR = sum(st.invoices.filter(i => i.open && i.kind === 'sale'), i => i.amt);
+  const reserve = st.ownerReserve || 0;
+  const O = [];
+  if (sev !== 'ok') {
+    if (openAR > 0) O.push({ fix: true, style: 'safe', title: L(`Factorizar tus cuentas por cobrar (${money(openAR)})`, `Factor your receivables (${money(openAR)})`),
+      why: L(`El banco te adelanta hoy lo que te deben los clientes. Pro: efectivo inmediato sin deuda nueva. Contra: pagas 3.5% (${money(openAR * 0.035)}), que sale directo de tu utilidad.`, `The bank pays you today what customers owe you. Pro: immediate cash with no new debt. Con: you pay 3.5% (${money(openAR * 0.035)}), straight out of your profit.`),
+      act: { kind: 'act', name: 'factor', args: {} } });
+    if (F.locFree > 0) { const amt = Math.round(Math.min(F.locFree, Math.max(20000, F.burn * 4)) / 1000) * 1000;
+      O.push({ fix: true, style: 'growth', title: L(`Disponer ${money(amt)} de tu línea de crédito`, `Draw ${money(amt)} from your credit line`),
+        why: L('Pro: es rápido y lo regresas cuando cobres. Contra: pagas interés cada mes y si la usas para tapar pérdidas solo pospones el problema.', 'Pro: it is fast and you repay it when you collect. Con: you pay interest every month, and if you use it to cover losses you only delay the problem.'),
+        act: { kind: 'act', name: 'locDraw', args: { amt } } }); }
+    if (reserve > 0) { const amt = Math.round(Math.min(reserve, Math.max(20000, F.burn * 4)) / 1000) * 1000;
+      O.push({ fix: true, style: 'safe', title: L(`Meter ${money(amt)} de tu ahorro personal`, `Put in ${money(amt)} of your personal savings`),
+        why: L('Pro: sin intereses ni bancos. Contra: es tu dinero; si el negocio no cambia, lo pierdes también.', 'Pro: no interest and no bank. Con: it is your own money; if the business does not change, you lose it too.'),
+        act: { kind: 'act', name: 'inject', args: { amt } } }); }
+    O.push({ style: 'cost', title: L('Pedir anticipo y no aceptar pedidos llave en mano grandes por ahora', 'Ask for deposits and avoid large turnkey orders for now'),
+      why: L('Pro: cuidas el efectivo porque en consigna el cliente pone el material. Contra: creces más lento y ganas menos por rack.', 'Pro: you protect cash because in consignment the customer supplies the material. Con: you grow slower and earn less per rack.'),
+      act: { kind: 'tab', tab: 'sales' } });
+    O.push({ style: 'people', title: L('Recortar gastos fijos (tiempo extra, contrataciones en espera)', 'Cut fixed costs (overtime, hiring on hold)'),
+      why: L('Pro: baja lo que gastas cada semana. Contra: si recortas gente que necesitas, entregas tarde y pierdes clientes.', 'Pro: lowers what you spend every week. Con: if you cut people you need, you deliver late and lose customers.'),
+      act: { kind: 'tab', tab: 'people' } });
+    O.push({ style: 'safe', title: L('Ir al banco: préstamo SBA o línea de crédito', 'Go to the bank: SBA loan or credit line'),
+      why: L('Pro: dinero a varios años para crecer o aguantar. Contra: si tu calificación es baja te prestan poco y caro, y la deuda se paga aunque el negocio vaya mal.', 'Pro: money over several years to grow or hold on. Con: with a low grade they lend little and at a high rate, and debt must be paid even when business is bad.'),
+      act: { kind: 'tab', tab: 'fin' } });
+  } else {
+    if (st.loc && st.loc.bal > 0) O.push({ style: 'safe', title: L(`Pagar tu línea de crédito (${money(st.loc.bal)})`, `Pay down your credit line (${money(st.loc.bal)})`),
+      why: L('Pro: dejas de pagar interés y tu calificación con el banco mejora. Contra: te queda menos colchón en el banco.', 'Pro: you stop paying interest and your bank grade improves. Con: you keep less cushion in the bank.'),
+      act: { kind: 'act', name: 'locRepay', args: { amt: Math.round(Math.min(st.loc.bal, Math.max(0, F.cash - F.burn * 8))) } } });
+    O.push({ style: 'safe', title: L('Mantener el colchón y no hacer nada', 'Keep the cushion and do nothing'),
+      why: L('Pro: aguantas un mes malo o un cliente que paga tarde. Contra: el dinero quieto no te hace crecer.', 'Pro: you survive a bad month or a late-paying customer. Con: idle money does not grow the business.'),
+      act: null });
+    O.push({ style: 'growth', title: L('Invertir en capacidad: equipo o automatización', 'Invest in capacity: equipment or automation'),
+      why: L('Pro: produces más racks con la misma gente. Contra: baja tu efectivo hoy y solo se paga si tienes pedidos para llenar esa capacidad.', 'Pro: you build more racks with the same people. Con: it lowers your cash today and only pays off if you have orders to fill that capacity.'),
+      act: { kind: 'tab', tab: 'improve' } });
+    O.push({ style: 'cost', title: L('Negociar más días de crédito con proveedores', 'Negotiate more credit days with suppliers'),
+      why: L('Pro: acorta tu ciclo de efectivo sin costo. Contra: el proveedor puede subir precio o pedirte volumen.', 'Pro: it shortens your cash cycle at no cost. Con: the supplier may raise prices or ask for volume.'),
+      act: { kind: 'tab', tab: 'buy' } });
+  }
+  return finish(st, { id: 'cash', who: speaker(st, 'cfo'), title: L('Dinero', 'Money'), sev, concept, now, trend, options: O,
+    metrics: [{ k: 'cash', v: money(F.cash), sev: F.cash < 0 ? 'bad' : 'ok' }, { k: 'runway', v: rw > 52 ? '52+' : String(rw), sev }, { k: 'ccc', v: F.ccc == null ? '—' : Math.round(F.ccc) + L(' días', ' days'), sev: F.ccc == null ? 'info' : F.ccc > 75 ? 'bad' : F.ccc > 45 ? 'warn' : 'ok' }],
+    say: L(`Dinero: te alcanza para ${rw > 52 ? 'más de un año' : rw + ' semanas'}.`, `Money: you can last ${rw > 52 ? 'more than a year' : rw + ' weeks'}.`) });
+}
+
+/* ---------- topic: profit ---------- */
+function topicProfit(st, F, X) {
+  const { L, money, pct } = X;
+  const concept = L('El margen por rack es lo que te pagan por un rack menos lo que te cuesta hacerlo: material, mano de obra directa, energía de burn-in, flete y garantías. El EBITDA es lo que gana la operación antes de intereses, impuestos y depreciación: te dice si el negocio en sí deja dinero. Con ese margen tienes que pagar los gastos fijos (sueldos de oficina, renta, seguros). Si el margen de todos tus racks no alcanza para los gastos fijos, pierdes dinero aunque la planta esté llena.',
+    'Margin per rack is what you are paid for a rack minus what it costs you to build it: material, direct labor, burn-in power, freight and warranty. EBITDA is what the operation earns before interest, taxes and depreciation: it tells you if the business itself makes money. That margin has to pay your fixed costs (office salaries, rent, insurance). If the margin from all your racks does not cover fixed costs, you lose money even with a full plant.');
+  const tgt = F.gmTarget;
+  const tgtTxt = F.turnShare > 0.5 ? L('llave en mano', 'turnkey') : L('consigna', 'consignment');
+  let sev = 'info', now, trend;
+  if (!F.delivered || F.rev <= 0) {
+    sev = st.stats.delivered ? 'warn' : 'info';
+    now = L('Todavía no hay racks entregados en los últimos meses, así que no hay margen que medir. Mientras tanto, cada semana pagas sueldos y renta sin ingresos.', 'There are no racks delivered in recent months, so there is no margin to measure yet. Meanwhile, every week you pay wages and rent with no income.');
+    trend = L('Tu prioridad es entregar el primer pedido a tiempo: es lo que abre la puerta a más clientes.', 'Your priority is to deliver the first order on time: that is what opens the door to more customers.');
+  } else {
+    sev = F.gm < tgt * 0.5 || F.ebitdaM < 0 ? 'bad' : F.gm < tgt ? 'warn' : 'ok';
+    const need = F.perRack > 0 ? Math.ceil(F.sgaM / F.perRack) : null;
+    now = L(`Ganas ${money(F.perRack)} por rack (${pct(F.gm)} de margen). Una integradora sana en ${tgtTxt} anda arriba de ${pct(tgt)}. Al mes entregas ${Math.round(F.racksM) === 1 ? 'un rack' : 'unos ' + Math.round(F.racksM) + ' racks'} y tu EBITDA mensual es ${money(F.ebitdaM)}. `,
+      `You earn ${money(F.perRack)} per rack (${pct(F.gm)} margin). A healthy ${tgtTxt} integrator is above ${pct(tgt)}. You deliver ${Math.round(F.racksM) === 1 ? 'one rack' : 'about ' + Math.round(F.racksM) + ' racks'} per month and your monthly EBITDA is ${money(F.ebitdaM)}. `)
+      + (need != null ? L(`Para cubrir tus gastos fijos (${money(F.sgaM)} al mes) necesitas unos ${need} racks al mes con este margen.`, `To cover your fixed costs (${money(F.sgaM)} per month) you need about ${need} racks per month at this margin.`) : '');
+    const eh = F.ebitdaHist;
+    if (eh.length >= 2) { const up = eh[eh.length - 1] >= eh[eh.length - 2];
+      trend = L(`El EBITDA de los últimos meses fue ${eh.map(x => money(x)).join(' → ')}: va ${up ? 'subiendo' : 'bajando'}. ${up ? 'Si mantienes el margen y el volumen, el valor de tu empresa crece cada mes.' : 'Revisa si fue por menos racks, peor precio o más costo; abajo te doy opciones.'}`,
+        `EBITDA over the last months was ${eh.map(x => money(x)).join(' → ')}: it is going ${up ? 'up' : 'down'}. ${up ? 'If you keep the margin and the volume, your company value grows every month.' : 'Check whether it came from fewer racks, worse price or higher cost; I give you options below.'}`); }
+    else trend = L('Con un mes más de historia te digo si el margen va mejorando.', 'With one more month of history I can tell you if the margin is improving.');
+  }
+  const O = [];
+  const growthFirst = !F.delivered || F.racksM * (F.perRack || 0) < F.sgaM;
+  O.push({ fix: sev !== 'ok' && growthFirst, style: 'growth', title: L('Conseguir más volumen para diluir los gastos fijos', 'Win more volume to spread your fixed costs'),
+    why: L('Pro: cada rack extra casi todo es utilidad porque la renta y los sueldos de oficina ya están pagados. Contra: necesitas capacidad y efectivo para crecer.', 'Pro: almost every extra rack is profit because rent and office salaries are already paid. Con: you need capacity and cash to grow.'),
+    act: { kind: 'tab', tab: 'sales' } });
+  O.push({ fix: sev !== 'ok' && !growthFirst, style: 'safe', title: L('Subir precio 3 a 5% en las próximas cotizaciones', 'Raise prices 3 to 5% on the next quotes'),
+    why: L('Pro: va directo al margen sin cambiar nada en la planta. Contra: ganas menos cotizaciones, sobre todo con clientes nuevos.', 'Pro: it goes straight to margin with no change on the floor. Con: you win fewer quotes, especially with new customers.'),
+    act: { kind: 'tab', tab: 'sales' } });
+  O.push({ style: 'cost', title: F.turnShare > 0.3 ? L('Comprar material en Asia o consolidar compras', 'Buy material in Asia or consolidate orders') : L('Bajar horas por rack con automatización o un Black Belt', 'Cut hours per rack with automation or a Black Belt'),
+    why: F.turnShare > 0.3 ? L('Pro: el material es 90% del costo en llave en mano; 5% menos es mucho dinero. Contra: más tiempo de entrega, mínimos de compra y más efectivo atrapado.', 'Pro: material is 90% of turnkey cost; 5% less is a lot of money. Con: longer lead times, minimum order quantities and more cash tied up.')
+      : L('Pro: en consigna tu costo es mano de obra; menos horas es margen directo. Contra: cuesta dinero hoy y tarda semanas en dar resultado.', 'Pro: in consignment your cost is labor; fewer hours is direct margin. Con: it costs money today and takes weeks to pay back.'),
+    act: { kind: 'tab', tab: F.turnShare > 0.3 ? 'buy' : 'improve' } });
+  return finish(st, { id: 'profit', who: speaker(st, 'cfo'), title: L('Ganancia', 'Profit'), sev, concept, now, trend, options: O,
+    metrics: [{ k: 'margin', v: F.perRack == null ? '—' : money(F.perRack) + ' · ' + pct(F.gm), sev }, { k: 'ebitda', v: money(F.ebitdaM) + L('/mes', '/mo'), sev: F.ebitdaM < 0 ? 'bad' : 'ok' }],
+    say: F.perRack == null ? L('Ganancia: aún sin racks entregados.', 'Profit: no racks delivered yet.') : L(`Ganancia: ${money(F.perRack)} por rack, ${pct(F.gm)} de margen.`, `Profit: ${money(F.perRack)} per rack, ${pct(F.gm)} margin.`) });
+}
+
+/* ---------- topic: customers ---------- */
+function topicCust(st, F, X) {
+  const { L, money, pct, sName } = X;
+  const concept = L('Entregas a tiempo (OTD) es el porcentaje de racks que entregas en la fecha que prometiste. Es tu reputación: abajo de 95% los clientes grandes no te dan programas y algunos te cobran penalización. La cartera de pedidos es el trabajo que ya vendiste y falta hacer. Medida en semanas de planta te dice si te falta vender (menos de 3 semanas) o si prometiste de más (más de 10).',
+    'On-time delivery (OTD) is the percentage of racks delivered on the date you promised. It is your reputation: below 95% big customers do not give you programs and some charge penalties. The backlog is work you already sold and still have to build. Measured in plant weeks, it tells you if you need more sales (under 3 weeks) or if you promised too much (over 10).');
+  const blW = F.blW >= 99 ? null : F.blW;
+  const otdSev = F.otd == null ? 'info' : F.otd >= 0.95 ? 'ok' : F.otd >= 0.85 ? 'warn' : 'bad';
+  const blSev = F.backlogU === 0 ? (st.stats.delivered ? 'warn' : 'info') : blW == null || blW > 12 ? 'warn' : blW < 2 ? 'warn' : 'ok';
+  const sev = sevRank[otdSev] <= sevRank[blSev] ? otdSev : blSev;
+  const otdTxt = F.otd == null ? L('Todavía no entregas racks, así que no hay OTD.', 'You have not delivered racks yet, so there is no OTD.')
+    : L(`Entregaste a tiempo el ${pct(F.otd)} de los racks de las últimas 12 semanas (la meta es 95%).`, `You delivered ${pct(F.otd)} of racks on time over the last 12 weeks (the target is 95%).`);
+  const blTxt = F.backlogU === 0 ? L(' No tienes pedidos abiertos: la planta se va a quedar sin trabajo.', ' You have no open orders: the plant will run out of work.')
+    : blW == null ? L(` Tienes ${F.backlogU} racks vendidos (${money(F.backlogV)}), pero hoy no tienes gente o equipo en ${sName(F.blStation)} para hacerlos.`, ` You have ${F.backlogU} racks sold (${money(F.backlogV)}), but today you have no people or equipment at ${sName(F.blStation)} to build them.`)
+    : L(` Tienes ${F.backlogU} racks vendidos (${money(F.backlogV)}), unas ${blW.toFixed(1)} semanas de trabajo.`, ` You have ${F.backlogU} racks sold (${money(F.backlogV)}), about ${blW.toFixed(1)} weeks of work.`);
+  const now = otdTxt + blTxt;
+  let trend;
+  if (F.otd4 != null && F.otdP != null) trend = F.otd4 >= F.otdP
+    ? L(`Las últimas 4 semanas entregaste ${pct(F.otd4)} a tiempo contra ${pct(F.otdP)} antes: vas mejorando.`, `Over the last 4 weeks you delivered ${pct(F.otd4)} on time versus ${pct(F.otdP)} before: you are improving.`)
+    : L(`Las últimas 4 semanas bajaste a ${pct(F.otd4)} a tiempo (antes ${pct(F.otdP)}). Si sigue así, vas a empezar a pagar penalizaciones y perder clientes.`, `Over the last 4 weeks you dropped to ${pct(F.otd4)} on time (before ${pct(F.otdP)}). If this continues, you will start paying penalties and losing customers.`);
+  else trend = blW != null && blW > 10 ? L('Prometiste más de lo que la planta puede hacer: los próximos pedidos van a salir tarde si no agregas capacidad.', 'You promised more than the plant can build: the next orders will be late unless you add capacity.')
+    : L('En cuanto tengas más entregas te digo si vas mejorando.', 'Once you have more deliveries I can tell you if you are improving.');
+  const O = [];
+  if (otdSev === 'bad' || otdSev === 'warn' || (blW != null && blW > 10) || blW == null && F.backlogU > 0) {
+    if (!st.pol.ot) O.push({ fix: true, style: 'safe', title: L('Tiempo extra por 4 semanas', 'Overtime for 4 weeks'),
+      why: L('Pro: más horas mañana mismo, sin contratar. Contra: cuesta 50% más por hora y después de 6 semanas baja la moral y suben los defectos.', 'Pro: more hours starting tomorrow, no hiring. Con: each hour costs 50% more, and after 6 weeks morale drops and defects go up.'),
+      act: { kind: 'act', name: 'policy', args: { k: 'ot', v: true } } });
+    O.push({ fix: !!st.pol.ot, style: 'growth', title: L('Contratar para el cuello de botella', 'Hire for the bottleneck'),
+      why: L('Pro: capacidad permanente. Contra: costo fijo cada semana y tarda 1 a 3 semanas en llegar. Abajo te digo a quién.', 'Pro: permanent capacity. Con: a fixed cost every week and it takes 1 to 3 weeks to arrive. Below I tell you who.'),
+      act: { kind: 'tab', tab: 'people' } });
+    O.push({ style: 'people', title: L('Prometer plazos más largos en las próximas cotizaciones', 'Promise longer lead times on the next quotes'),
+      why: L('Pro: dejas de comprometer lo que no puedes cumplir. Contra: algunos clientes se van con quien promete menos semanas.', 'Pro: you stop committing to what you cannot deliver. Con: some customers go to whoever promises fewer weeks.'),
+      act: { kind: 'tab', tab: 'sales' } });
+    if (st.pol.shifts < 3) O.push({ style: 'growth', title: L('Agregar un turno', 'Add a shift'),
+      why: L('Pro: el mismo equipo trabaja más horas. Contra: necesitas gente para ese turno y el turno de noche cuesta más.', 'Pro: the same equipment works more hours. Con: you need people for that shift and nights cost more.'),
+      act: { kind: 'act', name: 'policy', args: { k: 'shifts', v: st.pol.shifts + 1 } } });
+    O.push({ style: 'safe', title: L('Mover gente al cuello de botella', 'Move people to the bottleneck'),
+      why: L('Pro: no cuesta nada. Contra: la estación de donde sale puede atrasarse.', 'Pro: it costs nothing. Con: the station they leave may fall behind.'),
+      act: { kind: 'tab', tab: 'prod' } });
+  } else if (F.backlogU === 0 || (blW != null && blW < 2)) {
+    O.push({ fix: true, style: 'growth', title: L('Cotizar más agresivo para llenar la planta', 'Quote more aggressively to fill the plant'),
+      why: L('Pro: una planta parada igual paga renta y sueldos; un rack con poco margen es mejor que ninguno. Contra: si bajas mucho el precio, el cliente se acostumbra.', 'Pro: an idle plant still pays rent and wages; a rack with a thin margin is better than none. Con: if you cut the price too much, the customer gets used to it.'),
+      act: { kind: 'tab', tab: 'sales' } });
+    O.push({ style: 'safe', title: L('Mantener precio y esperar pedidos', 'Hold the price and wait for orders'),
+      why: L('Pro: cuidas el margen. Contra: cada semana sin trabajo te cuesta tus gastos fijos completos.', 'Pro: you protect the margin. Con: every week without work costs you your full fixed costs.'),
+      act: null });
+    O.push({ style: 'people', title: L('Usar el tiempo libre para entrenar al equipo', 'Use the slack time to train the team'),
+      why: L('Pro: suben nivel y calidad para cuando llegue el trabajo. Contra: cuesta dinero y no genera ingresos hoy.', 'Pro: skills and quality go up for when the work arrives. Con: it costs money and brings no income today.'),
+      act: { kind: 'act', name: 'policy', args: { k: 'train', v: 2 } } });
+  } else {
+    O.push({ style: 'safe', title: L('Mantener el ritmo y prometer con colchón', 'Keep the pace and promise with a buffer'),
+      why: L('Pro: sigues cumpliendo y tu reputación sube. Contra: alguna cotización se pierde por pedir una semana más.', 'Pro: you keep delivering and your reputation grows. Con: you lose a few quotes by asking for one more week.'),
+      act: null });
+    O.push({ style: 'growth', title: L('Buscar un programa con un cliente grande', 'Go after a program with a large customer'),
+      why: L('Pro: volumen estable por meses y te acerca a ser source one. Contra: te exigen calidad y entregas muy altas; si fallas, pierdes el programa.', 'Pro: steady volume for months and a step toward source one. Con: they demand very high quality and delivery; if you fail, you lose the program.'),
+      act: { kind: 'tab', tab: 'sales' } });
+    O.push({ style: 'cost', title: L('Subir un poco el precio a clientes donde cumples siempre', 'Raise prices a little with customers you always deliver to'),
+      why: L('Pro: tu buena entrega vale dinero. Contra: si el mercado está flojo, te cambian por otro.', 'Pro: your good delivery is worth money. Con: if the market is slow, they switch to someone else.'),
+      act: { kind: 'tab', tab: 'sales' } });
+  }
+  return finish(st, { id: 'cust', who: speaker(st, 'coo'), title: L('Clientes', 'Customers'), sev, concept, now, trend, options: O,
+    metrics: [{ k: 'otd', v: pct(F.otd), sev: otdSev }, { k: 'backlog', v: money(F.backlogV) + (blW == null ? '' : ' · ' + blW.toFixed(1) + L(' sem', ' wk')), sev: blSev }],
+    say: F.otd == null ? L(`Clientes: ${F.backlogU} racks en cartera.`, `Customers: ${F.backlogU} racks in backlog.`) : L(`Clientes: ${pct(F.otd)} a tiempo.`, `Customers: ${pct(F.otd)} on time.`) });
+}
+
+/* ---------- topic: plant ---------- */
+function topicPlant(st, F, X) {
+  const { L, money, pct, sName } = X;
+  const concept = L('Calidad a la primera (FPY) es el porcentaje de racks que pasan burn-in sin retrabajo. Cada rack que falla usa dos veces las horas de burn-in y de técnico, y retrasa a los demás. El cuello de botella es la estación más cargada: la planta completa solo produce lo que sale de ahí. Una hora perdida en el cuello es una hora perdida para toda la planta; una hora ganada en otra estación no sirve de nada.',
+    'First pass yield (FPY) is the percentage of racks that pass burn-in with no rework. Every failed rack uses burn-in and technician hours twice and delays the others. The bottleneck is the most loaded station: the whole plant only produces what comes out of it. An hour lost at the bottleneck is an hour lost for the whole plant; an hour gained at another station is worth nothing.');
+  const fpySev = F.fpy == null ? 'info' : F.fpy >= 0.92 ? 'ok' : F.fpy >= 0.8 ? 'warn' : 'bad';
+  const missingEq = !!(F.bn && E.eqCount(st, F.bn) === 0);
+  const bnU = missingEq ? 9 : Math.min(1.5, F.bnU);
+  const bnSev = !F.bn ? 'info' : missingEq || bnU >= 1.2 ? 'bad' : bnU > 0.98 ? 'warn' : 'ok';
+  const sev = sevRank[fpySev] <= sevRank[bnSev] ? fpySev : bnSev;
+  const sc = F.bn ? E.stationCap(st, F.bn, true) : null;
+  const eqLimited = !!(sc && (sc.eqH <= 0 || (sc.n > 0 && sc.eqH < sc.lab)));
+  const fpyTxt = F.fpy == null ? L('Todavía no hay racks en burn-in para medir calidad.', 'No racks through burn-in yet to measure quality.')
+    : L(`${pct(F.fpy)} de tus racks pasan burn-in a la primera (sano: 92% o más).`, `${pct(F.fpy)} of your racks pass burn-in the first time (healthy: 92% or more).`);
+  const bnTxt = !F.bn ? L(' No hay un cuello de botella claro esta semana.', ' There is no clear bottleneck this week.')
+    : missingEq ? L(` Tu cuello de botella es ${sName(F.bn)}: no tienes ese equipo y hay trabajo esperando.`, ` Your bottleneck is ${sName(F.bn)}: you do not have that equipment and work is waiting.`)
+    : L(` Tu cuello de botella es ${sName(F.bn)}, trabajando al ${pct(bnU)}${bnU >= 1.5 ? L(' o más', '') : ''}${eqLimited ? L(' y lo que falta ahí es equipo, no gente', ' and what is missing there is equipment, not people') : ''}.`, ` Your bottleneck is ${sName(F.bn)}, running at ${bnU >= 1.5 ? 'over ' : ''}${pct(bnU)}${eqLimited ? ' and what is missing there is equipment, not people' : ''}.`);
+  const now = fpyTxt + bnTxt;
+  let trend;
+  if (F.fpy4 != null && F.fpyP != null) trend = F.fpy4 >= F.fpyP
+    ? L(`La calidad va mejorando: ${pct(F.fpyP)} antes, ${pct(F.fpy4)} las últimas 4 semanas.`, `Quality is improving: ${pct(F.fpyP)} before, ${pct(F.fpy4)} over the last 4 weeks.`)
+    : L(`La calidad va empeorando: ${pct(F.fpyP)} antes, ${pct(F.fpy4)} las últimas 4 semanas. Si no la atiendes, pronto vas a ver clientes con racks que llegan muertos (DOA).`, `Quality is getting worse: ${pct(F.fpyP)} before, ${pct(F.fpy4)} over the last 4 weeks. If you do not act, customers will soon receive dead racks (DOA).`);
+  else trend = L('Con más racks en burn-in te digo la tendencia de calidad.', 'With more racks through burn-in I can tell you the quality trend.');
+  const O = [];
+  if (fpySev === 'bad' || fpySev === 'warn') {
+    O.push({ fix: true, style: 'safe', title: L('Subir el entrenamiento a intensivo', 'Raise training to intensive'),
+      why: L('Pro: menos errores de armado en pocas semanas. Contra: cuesta dinero y horas de producción mientras entrenan.', 'Pro: fewer build errors within a few weeks. Con: it costs money and production hours while they train.'),
+      act: { kind: 'act', name: 'policy', args: { k: 'train', v: 2 } } });
+    O.push({ style: 'cost', title: L('Proyecto de Black Belt para subir FPY', 'Black Belt project to raise FPY'),
+      why: L('Pro: ataca la causa raíz y el ahorro se queda. Contra: necesitas un Black Belt contratado y tarda semanas.', 'Pro: it attacks the root cause and the savings stay. Con: you need a Black Belt on staff and it takes weeks.'),
+      act: { kind: 'tab', tab: 'improve' } });
+    O.push({ style: 'people', title: L('Contratar gente que siga procesos', 'Hire people who follow process'),
+      why: L('Pro: el perfil "sigue procesos" comete menos errores. Contra: es un poco más lento y no propone mejoras.', 'Pro: the follows-process profile makes fewer errors. Con: a bit slower and does not suggest improvements.'),
+      act: { kind: 'tab', tab: 'people' } });
+  } else if (F.bn && (bnSev === 'bad' || bnSev === 'warn')) {
+    if (eqLimited || missingEq) {
+      const base = E.EQ[F.bn].cost;
+      O.push({ fix: true, style: 'safe', title: L(`Comprar equipo usado para ${sName(F.bn)} (${money(base * 0.5)})`, `Buy used equipment for ${sName(F.bn)} (${money(base * 0.5)})`),
+        why: L('Pro: mitad de precio y es tuyo. Contra: se descompone más seguido.', 'Pro: half the price and you own it. Con: it breaks down more often.'), act: { kind: 'act', name: 'buyEq', args: { s: F.bn, mode: 'used' } } });
+      O.push({ style: 'growth', title: L(`Rentar equipo para ${sName(F.bn)} (${money(base * 0.026)}/mes)`, `Lease equipment for ${sName(F.bn)} (${money(base * 0.026)}/mo)`),
+        why: L('Pro: casi no usas efectivo hoy. Contra: a 4 años pagas más que comprándolo.', 'Pro: almost no cash today. Con: over 4 years you pay more than buying it.'), act: { kind: 'act', name: 'buyEq', args: { s: F.bn, mode: 'lease' } } });
+      O.push({ style: 'cost', title: L(`Comprar equipo nuevo para ${sName(F.bn)} (${money(base)})`, `Buy new equipment for ${sName(F.bn)} (${money(base)})`),
+        why: L('Pro: confiable y dura años. Contra: es el que más efectivo usa hoy.', 'Pro: reliable and lasts for years. Con: it uses the most cash today.'), act: { kind: 'act', name: 'buyEq', args: { s: F.bn, mode: 'new' } } });
+    } else {
+      const donor = leastLoadedTech(st, F);
+      if (donor) O.push({ fix: true, style: 'cost', title: L(`Mover a ${donor.name} de ${sName(donor.from)} a ${sName(F.bn)}`, `Move ${donor.name} from ${sName(donor.from)} to ${sName(F.bn)}`),
+        why: L('Pro: no cuesta nada y el cuello produce más hoy. Contra: la estación de donde sale puede volverse el siguiente cuello.', 'Pro: it costs nothing and the bottleneck produces more today. Con: the station they leave may become the next bottleneck.'),
+        act: { kind: 'act', name: 'assign', args: { id: donor.id, station: F.bn } } });
+      if (!st.pol.ot) O.push({ fix: !donor, style: 'safe', title: L('Tiempo extra mientras contratas', 'Overtime while you hire'),
+        why: L('Pro: horas extra de inmediato. Contra: 50% más caro por hora y cansa al equipo.', 'Pro: extra hours right away. Con: 50% more per hour and it wears out the team.'),
+        act: { kind: 'act', name: 'policy', args: { k: 'ot', v: true } } });
+      O.push({ fix: !donor && !!st.pol.ot, style: 'growth', title: L(`Contratar un técnico para ${sName(F.bn)}`, `Hire a technician for ${sName(F.bn)}`),
+        why: L('Pro: capacidad permanente en el cuello. Contra: costo fijo; revisa la asesoría de contratación abajo.', 'Pro: permanent capacity at the bottleneck. Con: a fixed cost; see the hiring advice below.'),
+        act: { kind: 'tab', tab: 'people' } });
+      if (st.pol.shifts < 2) O.push({ style: 'people', title: L('Abrir segundo turno', 'Open a second shift'),
+        why: L('Pro: duplicas las horas del equipo sin comprar más. Contra: necesitas gente para ese turno y supervisión.', 'Pro: you double equipment hours without buying more. Con: you need people for that shift and supervision.'),
+        act: { kind: 'act', name: 'policy', args: { k: 'shifts', v: 2 } } });
+      O.push({ style: 'cost', title: L('Automatizar el cuello de botella', 'Automate the bottleneck'),
+        why: L('Pro: menos horas por rack en la estación que manda. Contra: cuesta efectivo y tarda en dar resultado.', 'Pro: fewer hours per rack at the station that sets the pace. Con: it costs cash and takes time to pay back.'),
+        act: { kind: 'tab', tab: 'improve' } });
+      O.push({ style: 'safe', title: L('Subir el entrenamiento', 'Raise training'),
+        why: L('Pro: la misma gente rinde más. Contra: cuesta horas mientras entrenan.', 'Pro: the same people produce more. Con: it costs hours while they train.'),
+        act: { kind: 'act', name: 'policy', args: { k: 'train', v: 2 } } });
+    }
+  } else {
+    O.push({ style: 'safe', title: L('Mantener el estándar y medir cada semana', 'Keep the standard and measure every week'),
+      why: L('Pro: lo que funciona no se toca. Contra: no mejoras el costo.', 'Pro: what works stays. Con: you do not improve cost.'), act: null });
+    O.push({ style: 'cost', title: L('Invertir en automatización en el cuello', 'Invest in automation at the bottleneck'),
+      why: L('Pro: menos horas por rack y más capacidad. Contra: cuesta efectivo y necesitas ingeniería para sacarle provecho.', 'Pro: fewer hours per rack and more capacity. Con: it costs cash and you need engineering to get the benefit.'),
+      act: { kind: 'tab', tab: 'improve' } });
+    O.push({ style: 'people', title: L('Entrenar al equipo para que cubra varias estaciones', 'Cross-train the team to cover several stations'),
+      why: L('Pro: cuando el cuello se mueve, la gente se mueve con él. Contra: horas de entrenamiento que no producen hoy.', 'Pro: when the bottleneck moves, people move with it. Con: training hours that do not produce today.'),
+      act: { kind: 'act', name: 'policy', args: { k: 'train', v: 1 } } });
+  }
+  return finish(st, { id: 'plant', who: speaker(st, fpySev === 'ok' || fpySev === 'info' ? 'coo' : 'qa'), title: L('Planta', 'Plant'), sev, concept, now, trend, options: O,
+    metrics: [{ k: 'fpy', v: pct(F.fpy), sev: fpySev }, { k: 'bn', v: F.bn ? sName(F.bn) + (missingEq ? '' : ' · ' + pct(bnU)) : '—', sev: bnSev }],
+    say: L(`Planta: ${F.fpy == null ? 'sin datos de calidad aún' : pct(F.fpy) + ' a la primera'}${F.bn ? ', el cuello es ' + sName(F.bn) : ''}.`, `Plant: ${F.fpy == null ? 'no quality data yet' : pct(F.fpy) + ' first pass'}${F.bn ? ', the bottleneck is ' + sName(F.bn) : ''}.`) });
+}
+function leastLoadedTech(st, F) {
+  let best = null;
+  for (const s of E.STAGES) {
+    if (s === F.bn) continue;
+    const T = st.emps.filter(e => e.role === 'tech' && e.station === s); if (T.length < 2) continue;
+    const cp = E.stationCap(st, s, true).std, load = F.LA[s] || 0;
+    const spare = cp - load / 6;
+    if (spare > 20 && (!best || spare > best.spare)) best = { spare, id: T[0].id, name: T[0].name, from: s };
+  }
+  return best;
+}
+
+/* ---------- topic: hiring ---------- */
+function topicHire(st, F, X) {
+  const { L, money, pct, sName, roleName, profName, lvName } = X;
+  const concept = L('Contratar es un costo fijo: lo pagas cada semana haya trabajo o no. Contrata para el cuello de botella, no donde sobra gente. El nivel define rapidez y defectos: un Aprendiz cuesta menos pero hace 60% de lo que hace un Técnico II y comete el doble de errores. El estilo define cómo trabaja: "sigue procesos" comete menos errores, "experimentado" rinde más pero cuesta más, "mejorador" baja costos, "líder" cuida la moral e "innovador" propone ideas pero se equivoca más.',
+    'Hiring is a fixed cost: you pay it every week whether there is work or not. Hire for the bottleneck, not where you already have spare people. Level sets speed and defects: a Trainee costs less but does 60% of what a Tech II does and makes twice the errors. Style sets how they work: follows process makes fewer errors, experienced produces more but costs more, improver cuts cost, leader protects morale and innovator brings ideas but makes more mistakes.');
+  const runway = F.runway;
+  // where is the work that nobody can do
+  let worst = null;
+  for (const s of E.STAGES) {
+    const la = F.LA[s] || 0; if (la <= 0 && E.eqCount(st, s) === 0) continue;
+    const sc = E.stationCap(st, s, true);
+    const need = la / 6, def = need - sc.std;
+    const eqFree = sc.eqH - sc.lab;
+    if (def > 8 && (!worst || def > worst.def)) worst = { s, def, eqFree, sc };
+  }
+  const prof = F.fpy != null && F.fpy < 0.88 ? 'proc' : F.gm != null && F.gm < F.gmTarget * 0.6 ? 'mej' : F.morale < 60 ? 'lid' : (F.blW > 8 ? 'exp' : 'proc');
+  const lv = runway < 6 ? 1 : F.fpy != null && F.fpy < 0.88 ? 2 : styleOf(st) === 'exp' ? 2 : 1;
+  const techStd = (L_, p) => 40 * E.LV_EFF[L_] * E.PROF[p].eff;
+  const techMonth = (L_, p) => E.marketWage(st, L_, p) * 40 * 4.33;
+  const O = []; let sev = 'ok', now, trend;
+  if (worst && worst.eqFree < 20 && E.eqCount(st, worst.s) > 0) {
+    sev = 'warn';
+    now = L(`En ${sName(worst.s)} faltan unas ${Math.round(worst.def)} horas por semana, pero el equipo ya está lleno de gente. Contratar ahí no sirve: primero necesitas otra estación o un segundo turno.`,
+      `${sName(worst.s)} is short about ${Math.round(worst.def)} hours per week, but the equipment is already fully staffed. Hiring there does not help: first you need another station or a second shift.`);
+    trend = L('Cuando agregues equipo o turno, ahí sí contrata.', 'Once you add equipment or a shift, then hire.');
+    O.push({ fix: true, style: 'people', title: L('Abrir segundo turno y contratar para ese turno', 'Open a second shift and hire for it'),
+      why: L('Pro: el mismo equipo trabaja el doble. Contra: necesitas gente nueva y supervisión de noche.', 'Pro: the same equipment works twice as much. Con: you need new people and night supervision.'),
+      act: { kind: 'act', name: 'policy', args: { k: 'shifts', v: Math.min(3, st.pol.shifts + 1) } } });
+    O.push({ style: 'safe', title: L(`Comprar equipo usado para ${sName(worst.s)}`, `Buy used equipment for ${sName(worst.s)}`),
+      why: L(`Pro: ${money(E.EQ[worst.s].cost * 0.5)} y tienes lugar para más gente. Contra: más descomposturas.`, `Pro: ${money(E.EQ[worst.s].cost * 0.5)} and room for more people. Con: more breakdowns.`),
+      act: { kind: 'act', name: 'buyEq', args: { s: worst.s, mode: 'used' } } });
+    O.push({ style: 'cost', title: L('No contratar y prometer plazos más largos', 'Do not hire and promise longer lead times'),
+      why: L('Pro: cero costo fijo nuevo. Contra: pierdes ventas.', 'Pro: no new fixed cost. Con: you lose sales.'), act: { kind: 'tab', tab: 'sales' } });
+  } else if (worst) {
+    const n = Math.max(1, Math.ceil(worst.def / techStd(lv, prof)));
+    sev = runway < 4 ? 'bad' : 'warn';
+    now = L(`A ${sName(worst.s)} le faltan unas ${Math.round(worst.def)} horas por semana para sacar tus pedidos en 6 semanas. Eso es ${n} × ${lvName(lv)} con estilo "${profName(prof)}". Cada uno cuesta unos ${money(techMonth(lv, prof))} al mes.`,
+      `${sName(worst.s)} is short about ${Math.round(worst.def)} hours per week to build your orders in 6 weeks. That is ${n} × ${lvName(lv)} with the "${profName(prof)}" style. Each costs about ${money(techMonth(lv, prof))} per month.`);
+    const whyProf = prof === 'proc' ? L('Elijo "sigue procesos" porque tu calidad es lo que más te cuesta ahora.', 'I pick follows process because quality is what costs you most right now.')
+      : prof === 'mej' ? L('Elijo "mejorador" porque tu margen está bajo.', 'I pick improver because your margin is low.')
+      : prof === 'lid' ? L('Elijo "líder" porque la moral está baja y se te puede ir gente.', 'I pick leader because morale is low and people may leave.')
+      : L('Elijo "experimentado" porque tienes mucho trabajo y necesitas que rinda desde el primer día.', 'I pick experienced because you have a lot of work and need output from day one.');
+    trend = (runway < 4 ? L('Pero ojo: con menos de 4 semanas de efectivo, un costo fijo nuevo es peligroso. Primero resuelve el dinero. ', 'But careful: with less than 4 weeks of cash, a new fixed cost is dangerous. Fix the money first. ') : '') + whyProf
+      + L(` ${lvName(lv)} porque ${lv === 1 ? 'cuida tu efectivo y aprende rápido con tu entrenamiento' : 'necesitas buena calidad desde el inicio'}.`, ` ${lvName(lv)} because ${lv === 1 ? 'it protects your cash and learns quickly with your training' : 'you need good quality from the start'}.`);
+    O.push({ fix: runway >= 4, style: 'growth', title: L(`Buscar ${n} × ${lvName(lv)} "${profName(prof)}" para ${sName(worst.s)}`, `Search for ${n} × ${lvName(lv)} "${profName(prof)}" for ${sName(worst.s)}`),
+      why: L(`Pro: cubres el cuello con ${Math.round(techStd(lv, prof) * n)} horas por semana. Contra: ${money(techMonth(lv, prof) * n)} al mes fijos y llegan en 1 a 3 semanas.`, `Pro: you cover the bottleneck with ${Math.round(techStd(lv, prof) * n)} hours per week. Con: ${money(techMonth(lv, prof) * n)} per month fixed and they arrive in 1 to 3 weeks.`),
+      act: { kind: 'act', name: 'hireSearch', args: { role: 'tech', prof, level: lv }, then: 'people' } });
+    if (!st.pol.ot) O.push({ fix: runway < 4, style: 'cost', title: L('No contratar: tiempo extra 4 semanas', 'Do not hire: overtime for 4 weeks'),
+      why: L('Pro: no agregas costo fijo; si los pedidos bajan, simplemente lo apagas. Contra: cada hora cuesta 50% más y más de 6 semanas cansa al equipo.', 'Pro: no new fixed cost; if orders drop, you just turn it off. Con: each hour costs 50% more and more than 6 weeks wears out the team.'),
+      act: { kind: 'act', name: 'policy', args: { k: 'ot', v: true } } });
+    else O.push({ fix: runway < 4, style: 'cost', title: L(`${lvName(0)} (más barato)`, `${lvName(0)} (cheaper)`),
+      why: L(`Pro: ${money(techMonth(0, 'proc'))} al mes. Contra: rinde 60% y comete el doble de errores; necesita entrenamiento.`, `Pro: ${money(techMonth(0, 'proc'))} per month. Con: 60% output and twice the errors; needs training.`),
+      act: { kind: 'act', name: 'hireSearch', args: { role: 'tech', prof: 'proc', level: 0 }, then: 'people' } });
+    O.push({ style: 'safe', title: L(`${lvName(3)} "${profName('exp')}" por agencia`, `${lvName(3)} "${profName('exp')}" through an agency`),
+      why: L(`Pro: llega la próxima semana, rinde más y casi no comete errores. Contra: cuesta ${money(techMonth(3, 'exp'))} al mes y la agencia cobra ${money(E.marketWage(st, 3, 'exp') * 2080 * 0.18)}.`, `Pro: arrives next week, produces more and makes almost no errors. Con: costs ${money(techMonth(3, 'exp'))} per month and the agency charges ${money(E.marketWage(st, 3, 'exp') * 2080 * 0.18)}.`),
+      act: { kind: 'act', name: 'hireSearch', args: { role: 'tech', prof: 'exp', level: 3, agency: true }, then: 'people' } });
+  } else if (F.bn && F.bnU > 0.98 && E.eqCount(st, F.bn) >= 0) {
+    // the bottleneck is real but it is not a people problem
+    const base = E.EQ[F.bn].cost;
+    sev = 'warn';
+    now = L(`Tu cuello de botella es ${sName(F.bn)}, pero ahí no te falta gente: te falta ${F.bn === 'bi' ? 'bahías de burn-in' : 'equipo'}. Contratar no lo resuelve; la persona nueva se quedaría esperando.`,
+      `Your bottleneck is ${sName(F.bn)}, but you are not short of people there: you are short of ${F.bn === 'bi' ? 'burn-in bays' : 'equipment'}. Hiring does not fix it; the new person would just wait.`);
+    trend = L('Primero agrega equipo; cuando el equipo esté lleno de trabajo, ahí contrata.', 'Add equipment first; once the equipment is full of work, then hire.');
+    O.push({ fix: true, style: 'safe', title: L(`Comprar ${sName(F.bn)} usado (${money(base * 0.5)})`, `Buy used ${sName(F.bn)} (${money(base * 0.5)})`),
+      why: L('Pro: mitad de precio. Contra: se descompone más seguido.', 'Pro: half the price. Con: it breaks down more often.'), act: { kind: 'act', name: 'buyEq', args: { s: F.bn, mode: 'used' } } });
+    O.push({ style: 'growth', title: L(`Rentar ${sName(F.bn)} (${money(base * 0.026)}/mes)`, `Lease ${sName(F.bn)} (${money(base * 0.026)}/mo)`),
+      why: L('Pro: casi sin efectivo hoy. Contra: más caro a largo plazo.', 'Pro: almost no cash today. Con: more expensive in the long run.'), act: { kind: 'act', name: 'buyEq', args: { s: F.bn, mode: 'lease' } } });
+    O.push({ style: 'cost', title: L('No contratar ni comprar: prometer plazos más largos', 'Do not hire or buy: promise longer lead times'),
+      why: L('Pro: no gastas nada. Contra: pierdes pedidos y los actuales siguen tarde.', 'Pro: you spend nothing. Con: you lose orders and current ones stay late.'), act: { kind: 'tab', tab: 'sales' } });
+  } else {
+    // nobody short on the floor: look at staff roles
+    const has = r => E.hasRole(st, r);
+    const revY = E.revenueTTM(st), supers = st.emps.filter(e => e.role === 'super').length;
+    let role = null, why = '';
+    if (F.techs === 0 && F.backlogU > 0) { role = 'tech'; why = L('Tienes pedidos y solo estás tú en el piso.', 'You have orders and only you on the floor.'); }
+    else if (F.fpy != null && F.fpy < 0.88 && !has('qa') && revY > 800000) { role = 'qa'; why = L('Tu calidad está baja y nadie es dueño de ella.', 'Your quality is low and nobody owns it.'); }
+    else if (F.techs >= 6 && !supers) { role = 'super'; why = L(`Tienes ${F.techs} técnicos sin supervisor; la productividad y la moral sufren.`, `You have ${F.techs} technicians with no supervisor; productivity and morale suffer.`); }
+    else if ((F.backlogU === 0 || F.blW < 3) && !has('sales') && st.stats.delivered >= 3) { role = 'sales'; why = L('La planta tiene capacidad libre y te faltan pedidos.', 'The plant has spare capacity and you need orders.'); }
+    else if (revY > 3e6 && !has('cfo')) { role = 'cfo'; why = L('Con tu tamaño, un CFO negocia mejor con bancos y proveedores y te ahorra más de lo que cuesta.', 'At your size, a CFO negotiates better with banks and suppliers and saves more than he costs.'); }
+    else if (revY > 4e6 && !has('coo')) { role = 'coo'; why = L('Ya no puedes estar en el piso y en la oficina a la vez; un director de operaciones sube la productividad.', 'You can no longer be on the floor and in the office at once; an operations director raises productivity.'); }
+    if (role && role !== 'tech') {
+      sev = 'info';
+      const pA = role === 'qa' ? 'proc' : role === 'sales' ? 'inn' : 'exp';
+      const cost = r => E.marketSalary(st, role, r) / 12;
+      now = why + L(` Te sugiero un ${roleName(role)} "${profName(pA)}", unos ${money(cost(pA))} al mes.`, ` I suggest a ${roleName(role)} "${profName(pA)}", about ${money(cost(pA))} per month.`);
+      trend = runway < 8 ? L('Tu efectivo está justo: si contratas, que sea alguien que genere o ahorre más de lo que cuesta en menos de 6 meses.', 'Your cash is tight: if you hire, it has to be someone who earns or saves more than they cost within 6 months.')
+        : L('Tienes efectivo para hacerlo; la pregunta es si esa persona te regresa más de lo que cuesta.', 'You have the cash for it; the question is whether that person returns more than they cost.');
+      O.push({ fix: true, style: 'growth', title: L(`Buscar ${roleName(role)} "${profName(pA)}"`, `Search for a "${profName(pA)}" ${roleName(role)}`),
+        why: L(`Pro: ${why.charAt(0).toLowerCase() + why.slice(1)} Contra: ${money(cost(pA))} al mes fijos.`, `Pro: it fixes this. Con: ${money(cost(pA))} per month fixed.`), act: { kind: 'act', name: 'hireSearch', args: { role, prof: pA }, then: 'people' } });
+      O.push({ style: 'cost', title: L(`${roleName(role)} "${profName('proc')}" (más barato)`, `"${profName('proc')}" ${roleName(role)} (cheaper)`),
+        why: L(`Pro: ${money(cost('proc'))} al mes. Contra: sigue el manual pero aporta menos ideas.`, `Pro: ${money(cost('proc'))} per month. Con: follows the book but brings fewer ideas.`), act: { kind: 'act', name: 'hireSearch', args: { role, prof: 'proc' }, then: 'people' } });
+      O.push({ style: 'safe', title: L('Esperar un mes más', 'Wait one more month'),
+        why: L('Pro: cuidas el efectivo. Contra: el problema sigue costando mientras tanto.', 'Pro: you protect cash. Con: the problem keeps costing you meanwhile.'), act: null });
+    } else if (role === 'tech') {
+      sev = 'warn';
+      now = why + L(` Contrata tu primer técnico: ${lvName(1)} "${profName('proc')}" (${money(techMonth(1, 'proc'))} al mes) para integración.`, ` Hire your first technician: ${lvName(1)} "${profName('proc')}" (${money(techMonth(1, 'proc'))} per month) for integration.`);
+      trend = L('Tú solo no vas a poder con los pedidos y con la oficina.', 'You alone cannot handle the orders and the office.');
+      O.push({ fix: true, style: 'safe', title: L(`${lvName(1)} "${profName('proc')}"`, `${lvName(1)} "${profName('proc')}"`), why: L('Pro: barato y comete pocos errores. Contra: tarda en tomar velocidad.', 'Pro: cheap and makes few errors. Con: takes time to get up to speed.'), act: { kind: 'act', name: 'hireSearch', args: { role: 'tech', prof: 'proc', level: 1 }, then: 'people' } });
+      O.push({ style: 'growth', title: L(`${lvName(2)} "${profName('exp')}"`, `${lvName(2)} "${profName('exp')}"`), why: L(`Pro: rinde desde el día uno. Contra: ${money(techMonth(2, 'exp'))} al mes.`, `Pro: productive from day one. Con: ${money(techMonth(2, 'exp'))} per month.`), act: { kind: 'act', name: 'hireSearch', args: { role: 'tech', prof: 'exp', level: 2 }, then: 'people' } });
+      O.push({ style: 'cost', title: L('Trabajar tú en el piso un tiempo más', 'Keep working on the floor yourself for now'), why: L('Pro: cero costo. Contra: nadie atiende ventas, compras ni finanzas.', 'Pro: no cost. Con: nobody handles sales, purchasing or finance.'), act: { kind: 'tab', tab: 'people' } });
+    } else {
+      sev = 'ok';
+      now = L('No contrates por ahora: ninguna estación está corta de gente para tus pedidos y cada contratación es costo fijo.', 'Do not hire for now: no station is short of people for your orders and every hire is a fixed cost.');
+      trend = L('Te aviso en cuanto el cuello de botella necesite gente.', 'I will tell you as soon as the bottleneck needs people.');
+      O.push({ style: 'safe', title: L('No contratar y vigilar el cuello', 'Do not hire and watch the bottleneck'), why: L('Pro: cuidas efectivo y margen. Contra: si llega un pedido grande, contratar tarda 1 a 3 semanas.', 'Pro: you protect cash and margin. Con: if a big order arrives, hiring takes 1 to 3 weeks.'), act: null });
+      O.push({ style: 'people', title: L('Entrenar al equipo actual', 'Train the current team'), why: L('Pro: más rapidez y calidad con la misma gente. Contra: cuesta horas y dinero.', 'Pro: more speed and quality with the same people. Con: it costs hours and money.'), act: { kind: 'act', name: 'policy', args: { k: 'train', v: 1 } } });
+      O.push({ style: 'growth', title: L('Contratar un vendedor para llenar la planta', 'Hire a salesperson to fill the plant'), why: L('Pro: más pedidos para la capacidad que ya pagas. Contra: tarda meses en traer clientes.', 'Pro: more orders for capacity you already pay for. Con: it takes months to bring in customers.'), act: { kind: 'act', name: 'hireSearch', args: { role: 'sales', prof: 'inn' }, then: 'people' } });
+    }
+  }
+  return finish(st, { id: 'hire', who: speaker(st, 'hr'), title: L('A quién contratar', 'Who to hire'), sev, concept, now, trend, options: O, metrics: [],
+    say: L('Contratación: ', 'Hiring: ') + now.split('. ')[0] + '.' });
+}
+
+/* ---------- grading the month ---------- */
+function gradeMonth(st, mi, X) {
+  const { L, t, optLabel, money } = X;
+  const D = (st.decided || []).filter(d => E.cal(d.w).mi === mi);
+  const out = [];
+  for (const d of D) {
+    const label = t('d_' + d.type);
+    let g = 'ok', why = '', alt = '';
+    const recTxt = d.rec ? t(d.rec.k, d.rec.p) : '';
+    const recOpt = d.rec && typeof d.rec.opt === 'string' ? optLabel(d.type, d.rec.opt) : '';
+    const followed = d.followed && d.followed.length > 0;
+    if (d.type === 'quote' && d.q) {
+      const o = st.opps.find(x => x.id === d.q.opp);
+      const ord = st.orders.find(x => x.opp === d.q.opp);
+      if (d.opt === 'decline') {
+        const busy = d.ctx && (d.ctx.bnU > 0.95 || d.ctx.cw < 4);
+        g = busy ? 'good' : 'ok';
+        why = busy ? L('Rechazaste cuando la planta o el efectivo no daban. Bien cuidado.', 'You declined when the plant or the cash could not take it. Well protected.')
+          : L('Rechazaste teniendo capacidad y efectivo: era una venta que la planta podía hacer.', 'You declined while you had capacity and cash: it was a sale the plant could build.');
+      } else if (!ord) {
+        if (o && o.status === 'lost') { g = 'ok'; why = L('La perdiste. Normalmente es por precio alto o plazo largo contra la competencia.', 'You lost it. Usually it is a high price or a long lead time against the competition.'); }
+        else { g = 'pending'; why = L('El cliente todavía no decide.', 'The customer has not decided yet.'); }
+      } else {
+        const unitCost = d.q.cost || 0, price = d.q.price || ord.price;
+        const mg = price > 0 ? (price - unitCost) / price : 0;
+        const short = d.q.lead && d.q.sug && d.q.lead < d.q.sug;
+        const late = ord.status === 'done' ? (ord.doneW > ord.due) : st.w > ord.due;
+        g = late || mg < 0.03 ? 'bad' : short || mg < 0.08 ? 'ok' : 'good';
+        why = (mg < 0.03 ? L(`La ganaste pero casi sin margen (${Math.round(mg * 100)}%).`, `You won it but with almost no margin (${Math.round(mg * 100)}%).`) : L(`La ganaste con ${Math.round(mg * 100)}% de margen.`, `You won it with a ${Math.round(mg * 100)}% margin.`))
+          + (late ? L(' Va tarde: prometiste menos semanas de las que la planta podía.', ' It is late: you promised fewer weeks than the plant could do.') : short ? L(` Prometiste ${d.q.lead} semanas cuando la planta necesitaba ${d.q.sug}; es un riesgo.`, ` You promised ${d.q.lead} weeks when the plant needed ${d.q.sug}; that is a risk.`) : '');
+      }
+      if (g !== 'good' && d.rec && d.rec.opt) alt = typeof d.rec.opt === 'string' ? recOpt : L(`cotizar ${money(d.rec.opt.price)} por rack a ${d.rec.opt.lead} semanas.`, `quote ${money(d.rec.opt.price)} per rack at ${d.rec.opt.lead} weeks.`);
+    } else if (followed) {
+      g = 'good'; why = L('Seguiste la recomendación del asesor.', 'You followed the advice.');
+    } else if (d.rec) {
+      g = 'ok'; why = L('No seguiste la recomendación del asesor. No siempre es malo, pero revisa qué pasó.', 'You did not follow the advice. That is not always bad, but check what happened.');
+      alt = (recOpt ? recOpt + ': ' : '') + recTxt;
+    } else { g = 'ok'; why = L('No había una recomendación clara.', 'There was no clear recommendation.'); }
+    out.push({ label, opt: d.opt === 'custom' ? '' : optLabel(d.type, d.opt), g, why, alt, lost: d.type === 'quote' && d.opt === 'quote' && /perdiste|lost it/i.test(why) });
+  }
+  // many lost quotes say the same thing: show them as one line
+  const lost = out.filter(x => x.lost);
+  if (lost.length > 1) {
+    const keep = out.filter(x => !x.lost);
+    keep.push({ label: lost[0].label, opt: '', g: lost.length >= 3 ? 'bad' : 'ok', why: L(`Perdiste ${lost.length} cotizaciones este mes. Normalmente es por precio alto o plazo largo; si pierdes muchas, compara tu precio con lo que sugería el asesor.`, `You lost ${lost.length} quotes this month. Usually it is a high price or a long lead time; if you lose many, compare your price with what the advisor suggested.`), alt: lost.map(x => x.alt).filter(Boolean).slice(0, 2).join(' · ') });
+    return keep;
+  }
+  return out;
+}
+
+/* ---------- public API ---------- */
+function reading(st, X, mode) {
+  if (!st.kpi) return { topics: [], grades: [], speech: '' };
+  const F = facts(st);
+  const topics = [topicCash(st, F, X), topicProfit(st, F, X), topicCust(st, F, X), topicPlant(st, F, X), topicHire(st, F, X)];
+  const grades = mode === 'month' && st.months.length ? gradeMonth(st, st.months[st.months.length - 1].mi, X) : [];
+  const { L } = X;
+  const sp = topics.map(T => {
+    const r = T.options.find(o => o.rec);
+    return `${T.title}. ${T.now} ${T.trend} ${r ? L('Te recomiendo: ', 'I recommend: ') + r.title + '.' : ''}`;
+  });
+  return { topics, grades, F, speech: sp.join(' ') };
+}
+// one number, explained: what it is, how it is calculated, healthy range, why it moved, what to do
+function explain(st, key, X) {
+  const { L, money, pct, sName } = X;
+  const F = facts(st);
+  const R = reading(st, X, 'week');
+  const T = id => R.topics.find(x => x.id === id);
+  const D = {
+    cash: { topic: 'cash', name: L('Efectivo', 'Cash'), val: money(F.cash),
+      what: L('El dinero que tienes hoy en el banco. Es lo único con lo que pagas sueldos, renta y proveedores.', 'The money you have in the bank today. It is the only thing you pay wages, rent and suppliers with.'),
+      calc: L(`Efectivo de la semana pasada + cobros − pagos. Hoy: ${money(F.cash)}.`, `Last week cash + collections − payments. Today: ${money(F.cash)}.`),
+      ref: L('Sano: al menos 8 semanas de gastos fijos.', 'Healthy: at least 8 weeks of fixed costs.'),
+      move: F.cash4 == null ? '' : L(`Hace 4 semanas tenías ${money(F.cash4)}; ${F.cash >= F.cash4 ? 'subió' : 'bajó'} ${money(Math.abs(F.cash - F.cash4))}.`, `Four weeks ago you had ${money(F.cash4)}; it went ${F.cash >= F.cash4 ? 'up' : 'down'} ${money(Math.abs(F.cash - F.cash4))}.`) },
+    runway: { topic: 'cash', name: L('Semanas de efectivo', 'Weeks of cash'), val: F.runway > 52 ? '52+' : String(Math.round(F.runway)),
+      what: L('Cuántas semanas puedes pagar tus gastos fijos si no entra ni un peso.', 'How many weeks you can pay your fixed costs if no money comes in.'),
+      calc: L(`(Efectivo ${money(F.cash)} + línea disponible ${money(F.locFree)}) ÷ gasto fijo semanal ${money(F.burn)}.`, `(Cash ${money(F.cash)} + available credit ${money(F.locFree)}) ÷ weekly fixed cost ${money(F.burn)}.`),
+      ref: L('Sano: 8 o más. Alerta: menos de 8. Peligro: menos de 4.', 'Healthy: 8 or more. Warning: under 8. Danger: under 4.'),
+      move: L('Sube cuando cobras o reduces gastos fijos; baja cuando pagas material, contratas o pierdes dinero.', 'It goes up when you collect or cut fixed costs; it goes down when you pay for material, hire or lose money.') },
+    ccc: { topic: 'cash', name: L('Ciclo de conversión de efectivo', 'Cash conversion cycle'), val: F.ccc == null ? '—' : Math.round(F.ccc) + L(' días', ' days'),
+      what: L('Los días que tu dinero está atrapado desde que pagas al proveedor hasta que te paga el cliente.', 'The days your money is trapped from paying the supplier until the customer pays you.'),
+      calc: F.ccc == null ? L('Se calcula cuando tengas ventas.', 'It is calculated once you have sales.') : L(`Días de cobro ${Math.round(F.dso)} + días de inventario ${Math.round(F.dio || 0)} − días de crédito del proveedor ${Math.round(F.dpo || 0)} = ${Math.round(F.ccc)}.`, `Collection days ${Math.round(F.dso)} + inventory days ${Math.round(F.dio || 0)} − supplier credit days ${Math.round(F.dpo || 0)} = ${Math.round(F.ccc)}.`),
+      ref: L('Sano en racks: menos de 45 días. Más de 60 te obliga a pedir prestado para crecer.', 'Healthy for racks: under 45 days. Over 60 forces you to borrow to grow.'),
+      move: L('Baja si cobras más rápido, compras justo a tiempo o negocias más días con proveedores.', 'It goes down if you collect faster, buy just in time or negotiate more days with suppliers.') },
+    margin: { topic: 'profit', name: L('Margen por rack', 'Margin per rack'), val: F.perRack == null ? '—' : money(F.perRack) + ' · ' + pct(F.gm),
+      what: L('Lo que te queda de cada rack después de pagar lo que cuesta hacerlo.', 'What you keep from each rack after paying what it costs to build.'),
+      calc: F.perRack == null ? L('Se calcula cuando entregues racks.', 'It is calculated once you deliver racks.') : L(`(Ventas ${money(F.rev)} − costo de ventas ${money(F.cogs)}) ÷ ${F.delivered} racks = ${money(F.perRack)} por rack, de los últimos 3 meses.`, `(Sales ${money(F.rev)} − cost of sales ${money(F.cogs)}) ÷ ${F.delivered} racks = ${money(F.perRack)} per rack, over the last 3 months.`),
+      ref: L(`Sano para tu mezcla de pedidos: ${pct(F.gmTarget)} o más (consigna 30%, llave en mano 7%).`, `Healthy for your order mix: ${pct(F.gmTarget)} or more (consignment 30%, turnkey 7%).`),
+      move: L('Sube con mejor precio, menos horas por rack, menos fallas y material más barato.', 'It goes up with better prices, fewer hours per rack, fewer failures and cheaper material.') },
+    ebitda: { topic: 'profit', name: 'EBITDA', val: money(F.ebitdaM) + L('/mes', '/mo'),
+      what: L('Lo que gana la operación antes de intereses, impuestos y depreciación. Los compradores valúan tu empresa como un múltiplo del EBITDA.', 'What the operation earns before interest, taxes and depreciation. Buyers value your company as a multiple of EBITDA.'),
+      calc: L(`Margen bruto ${money(F.gp)} − gastos fijos ${money(F.sga)} + depreciación, de los últimos 3 meses, al mes: ${money(F.ebitdaM)}.`, `Gross margin ${money(F.gp)} − fixed costs ${money(F.sga)} + depreciation, over the last 3 months, per month: ${money(F.ebitdaM)}.`),
+      ref: L('Sano: positivo y creciendo; 5% de las ventas o más.', 'Healthy: positive and growing; 5% of sales or more.'),
+      move: L('Sube con más racks (diluyes gastos fijos) o mejor margen por rack.', 'It goes up with more racks (spreading fixed costs) or a better margin per rack.') },
+    otd: { topic: 'cust', name: L('Entregas a tiempo', 'On-time delivery'), val: pct(F.otd),
+      what: L('El porcentaje de racks que entregaste en la fecha prometida.', 'The percentage of racks you delivered on the promised date.'),
+      calc: L('Racks a tiempo ÷ racks entregados, de las últimas 12 semanas.', 'Racks on time ÷ racks delivered, over the last 12 weeks.'),
+      ref: L('Sano: 95% o más. Abajo de 85% pierdes clientes.', 'Healthy: 95% or more. Below 85% you lose customers.'),
+      move: F.otd4 == null || F.otdP == null ? '' : L(`Últimas 4 semanas ${pct(F.otd4)}, antes ${pct(F.otdP)}.`, `Last 4 weeks ${pct(F.otd4)}, before ${pct(F.otdP)}.`) },
+    backlog: { topic: 'cust', name: L('Cartera de pedidos', 'Backlog'), val: money(F.backlogV),
+      what: L('El trabajo que ya vendiste y falta hacer.', 'Work you already sold and still have to build.'),
+      calc: L(`${F.backlogU} racks por ${money(F.backlogV)}; en horas de la estación más cargada son ${F.blW >= 99 ? 'trabajo sin capacidad' : F.blW.toFixed(1) + ' semanas'}.`, `${F.backlogU} racks worth ${money(F.backlogV)}; in hours of the most loaded station that is ${F.blW >= 99 ? 'work with no capacity' : F.blW.toFixed(1) + ' weeks'}.`),
+      ref: L('Sano: 3 a 10 semanas de trabajo.', 'Healthy: 3 to 10 weeks of work.'),
+      move: L('Sube cuando ganas pedidos y baja cuando entregas.', 'It goes up when you win orders and down when you deliver.') },
+    fpy: { topic: 'plant', name: L('Calidad a la primera', 'First pass yield'), val: pct(F.fpy),
+      what: L('El porcentaje de racks que pasan burn-in sin retrabajo.', 'The percentage of racks that pass burn-in with no rework.'),
+      calc: L('Racks que pasaron a la primera ÷ racks que entraron a burn-in, últimas 12 semanas.', 'Racks that passed first time ÷ racks that entered burn-in, last 12 weeks.'),
+      ref: L('Sano: 92% o más.', 'Healthy: 92% or more.'),
+      move: F.fpy4 == null || F.fpyP == null ? '' : L(`Últimas 4 semanas ${pct(F.fpy4)}, antes ${pct(F.fpyP)}. Sube con entrenamiento, gente de procesos, poka-yokes y Black Belts.`, `Last 4 weeks ${pct(F.fpy4)}, before ${pct(F.fpyP)}. It goes up with training, process people, poka-yokes and Black Belts.`) },
+    bn: { topic: 'plant', name: L('Cuello de botella', 'Bottleneck'), val: F.bn ? sName(F.bn) : '—',
+      what: L('La estación más cargada. La planta entera solo produce lo que sale de ahí.', 'The most loaded station. The whole plant only produces what comes out of it.'),
+      calc: F.bn ? L(`Horas usadas ÷ horas disponibles en ${sName(F.bn)}: ${pct(Math.min(1.5, F.bnU))}.`, `Hours used ÷ hours available at ${sName(F.bn)}: ${pct(Math.min(1.5, F.bnU))}.`) : L('No hay estación saturada.', 'No station is saturated.'),
+      ref: L('Sano: entre 80% y 95%. Arriba de 100% acumulas atraso.', 'Healthy: between 80% and 95%. Above 100% you build up delays.'),
+      move: L('Se mueve cuando cambias gente, equipo, turnos o el tipo de rack.', 'It moves when you change people, equipment, shifts or the rack type.') }
+  };
+  const d = D[key]; if (!d) return null;
+  const topic = T(d.topic);
+  const m = topic.metrics.find(x => x.k === key);
+  return Object.assign(d, { sev: m ? m.sev : topic.sev, options: topic.options, who: topic.who });
+}
+// apprentice mode: after three healthy months on a topic, the lesson is shortened
+function commitMonth(st, R) {
+  const c = st.coach || (st.coach = { m: {}, last: -1 });
+  const mi = st.months.length ? st.months[st.months.length - 1].mi : -1;
+  if (c.last === mi) return;
+  c.last = mi;
+  for (const T of R.topics) c.m[T.id] = T.sev === 'ok' ? (c.m[T.id] || 0) + 1 : 0;
+}
+
+/* ---------- guided walk through the income statement ---------- */
+const PLX = {
+  grossSales: ['Todo lo que facturaste a tus clientes por los racks entregados este mes.', 'Everything you invoiced customers for racks delivered this month.', 'vol'],
+  deductions: ['Lo que se resta a la venta: penalizaciones por entregar tarde y descuentos.', 'What comes off the sale: late delivery penalties and discounts.', 'ontime'],
+  netRevenue: ['La venta real después de penalizaciones. Es la base contra la que se compara todo lo demás.', 'The real sale after penalties. Everything else is compared against it.', 'vol'],
+  mat: ['Las partes que compraste para los racks llave en mano: servidores, switches, cables, enfriamiento. En consigna casi no aparece porque el cliente pone el material.', 'Parts you bought for turnkey racks: servers, switches, cables, cooling. In consignment it barely shows because the customer supplies the material.', 'mat'],
+  dl: ['El sueldo de los técnicos que arman los racks. Se paga aunque no haya racks que armar.', 'Wages of the technicians who build the racks. You pay it even when there are no racks to build.', 'labor'],
+  util: ['La luz que consume la planta, sobre todo el burn-in, que tiene los racks prendidos días enteros.', 'Power the plant uses, mostly burn-in, which keeps racks running for days.', 'power'],
+  freight: ['Lo que cuesta mover material y racks: flete de entrada y de salida.', 'The cost of moving material and racks: inbound and outbound freight.', 'freight'],
+  consum: ['Consumibles del piso: etiquetas, cinchos, empaque, guantes ESD.', 'Floor consumables: labels, ties, packing, ESD gloves.', 'labor'],
+  maint: ['Mantenimiento y renta del equipo de la línea.', 'Maintenance and lease of line equipment.', 'equip'],
+  depx: ['La parte del equipo que compraste que se "gasta" cada mes. No sale efectivo, pero es un costo real.', 'The part of the equipment you bought that is used up each month. No cash goes out, but it is a real cost.', 'equip'],
+  warranty: ['Lo que cuesta arreglar racks que llegaron muertos (DOA) o fallaron con el cliente.', 'The cost of fixing racks that arrived dead (DOA) or failed at the customer.', 'quality'],
+  obsol: ['Material que se quedó viejo o que ya no sirve.', 'Material that became old or unusable.', 'mat'],
+  cogs: ['Todo lo que cuesta hacer los racks: material, mano de obra directa, energía, fletes, equipo y garantías.', 'Everything it costs to build the racks: material, direct labor, power, freight, equipment and warranty.', 'cogs'],
+  grossProfit: ['Lo que te queda después de hacer los racks. De aquí sale todo lo demás: oficina, renta, intereses y tu ganancia.', 'What you keep after building the racks. Everything else comes out of this: office, rent, interest and your profit.', 'gp'],
+  sal: ['Sueldos de la gente que no arma racks: directores, supervisores, ventas, compras, Black Belts.', 'Salaries of people who do not build racks: directors, supervisors, sales, purchasing, Black Belts.', 'staff'],
+  benefits: ['Seguro médico y prestaciones del equipo.', 'Health insurance and team benefits.', 'staff'],
+  rent: ['La renta de tu nave. Es fija: la pagas hagas 1 rack o 100.', 'Rent for your building. It is fixed: you pay it whether you build 1 rack or 100.', 'rent'],
+  ins: ['Seguros de la empresa y del inventario.', 'Company and inventory insurance.', 'fixed'],
+  hrtrain: ['Reclutamiento, agencias y entrenamiento.', 'Recruiting, agencies and training.', 'staff'],
+  softw: ['Software, sistemas y gastos de oficina.', 'Software, systems and office costs.', 'fixed'],
+  other: ['Gastos extraordinarios: mudanzas, asesores, abogados, comisiones de inversionistas.', 'One-time costs: moves, advisors, lawyers, investor fees.', 'fixed'],
+  baddebt: ['Lo que un cliente ya no te va a pagar.', 'What a customer will never pay you.', 'credit'],
+  proptax: ['Impuestos locales sobre propiedades y equipo.', 'Local taxes on property and equipment.', 'fixed'],
+  sga: ['Los gastos fijos de operar la empresa, aunque no hagas racks.', 'The fixed costs of running the company, even with no racks built.', 'fixedAll'],
+  ebit: ['Lo que gana la operación: utilidad bruta menos gastos de operación. Todavía sin intereses ni impuestos.', 'What the operation earns: gross profit minus operating expenses. Still before interest and taxes.', 'gp'],
+  gain: ['Ingresos o pérdidas fuera de la operación, como vender equipo.', 'Income or losses outside operations, like selling equipment.', 'none'],
+  interest: ['Lo que pagas por el dinero prestado: préstamos, línea de crédito e hipoteca.', 'What you pay for borrowed money: loans, credit line and mortgage.', 'debt'],
+  fees: ['Comisiones del banco, de factoraje y por sobregiros.', 'Bank fees, factoring fees and overdraft charges.', 'debt'],
+  pretax: ['La utilidad antes de pagar impuesto sobre la renta.', 'Profit before income tax.', 'none'],
+  inctax: ['El impuesto sobre la renta. Solo se paga cuando hay utilidad.', 'Income tax. You only pay it when there is a profit.', 'none'],
+  netIncome: ['Lo que de verdad ganaste o perdiste en el mes. Es la última línea: todo lo de arriba ya se restó.', 'What you really earned or lost this month. It is the bottom line: everything above has been subtracted.', 'none'],
+  ebitda: ['Utilidad de operación sin depreciación. Es el número con el que un comprador valúa tu empresa.', 'Operating income before depreciation. It is the number a buyer uses to value your company.', 'gp']
+};
+const PL_MAIN = ['grossSales', 'deductions', 'netRevenue', 'mat', 'dl', 'util', 'freight', 'consum', 'maint', 'depx', 'warranty', 'obsol', 'cogs', 'grossProfit', 'sal', 'benefits', 'rent', 'ins', 'hrtrain', 'softw', 'other', 'baddebt', 'proptax', 'sga', 'ebit', 'gain', 'interest', 'fees', 'inctax', 'netIncome', 'ebitda'];
+const PL_ALWAYS = new Set(['netRevenue', 'cogs', 'grossProfit', 'sga', 'ebit', 'netIncome', 'ebitda']);
+function plOptions(st, kind, X) {
+  const { L } = X;
+  const o = (title, why, act, style, fix) => ({ title, why, act, style: style || 'safe', fix: !!fix });
+  const tab = t => ({ kind: 'tab', tab: t });
+  const pol = (k, v) => ({ kind: 'act', name: 'policy', args: { k, v } });
+  const M = {
+    mat: [o(L('Comprar en Asia para pedidos con tiempo', 'Buy from Asia for orders with lead time'), L('Pro: material más barato. Contra: más semanas, mínimos de compra y más efectivo atrapado.', 'Pro: cheaper material. Con: more weeks, minimum quantities and more cash tied up.'), tab('buy'), 'cost', true),
+      o(L('Negociar precio por volumen con tu proveedor', 'Negotiate volume pricing with your supplier'), L('Pro: baja el costo sin cambiar de proveedor. Contra: te pide comprometer volumen.', 'Pro: lower cost without changing supplier. Con: they ask you to commit volume.'), tab('buy'), 'safe'),
+      o(L('Preferir pedidos en consigna', 'Prefer consignment orders'), L('Pro: el cliente pone el material y tu riesgo baja. Contra: ganas menos dólares por rack.', 'Pro: the customer supplies material and your risk drops. Con: fewer dollars per rack.'), tab('sales'), 'growth')],
+    labor: [o(L('Automatizar las estaciones con más horas', 'Automate the stations with the most hours'), L('Pro: menos horas por rack para siempre. Contra: inversión y tiempo de arranque.', 'Pro: fewer hours per rack for good. Con: investment and ramp-up time.'), tab('improve'), 'cost', true),
+      o(L('Subir el entrenamiento', 'Raise training'), L('Pro: la misma gente hace más racks. Contra: horas de entrenamiento.', 'Pro: the same people build more racks. Con: training hours.'), pol('train', 2), 'safe'),
+      o(L('Llenar la planta con más pedidos', 'Fill the plant with more orders'), L('Pro: los técnicos ya están pagados; más racks bajan el costo por rack. Contra: necesitas vender.', 'Pro: technicians are already paid; more racks lower cost per rack. Con: you need to sell.'), tab('sales'), 'growth')],
+    quality: [o(L('Subir el entrenamiento a intensivo', 'Raise training to intensive'), L('Pro: menos errores de armado. Contra: cuesta horas.', 'Pro: fewer build errors. Con: it costs hours.'), pol('train', 2), 'safe', true),
+      o(L('Proyecto de Black Belt de calidad', 'Quality Black Belt project'), L('Pro: elimina la causa raíz. Contra: tarda semanas.', 'Pro: removes the root cause. Con: it takes weeks.'), tab('improve'), 'cost'),
+      o(L('Contratar un director de calidad', 'Hire a quality director'), L('Pro: alguien es dueño de la calidad. Contra: sueldo alto.', 'Pro: someone owns quality. Con: a high salary.'), tab('people'), 'people')],
+    rent: [o(L('Comprar o construir tu propia nave', 'Buy or build your own building'), L('Pro: dejas de pagar renta y el edificio es tuyo. Contra: mucho efectivo o una hipoteca.', 'Pro: no more rent and you own the building. Con: a lot of cash or a mortgage.'), tab('prod'), 'growth'),
+      o(L('Llenar la nave con más volumen', 'Fill the building with more volume'), L('Pro: la renta es la misma; más racks la diluyen. Contra: necesitas pedidos.', 'Pro: rent stays the same; more racks spread it. Con: you need orders.'), tab('sales'), 'safe', true),
+      o(L('Mudarte a una nave más chica', 'Move to a smaller building'), L('Pro: renta más baja. Contra: mudanza, días sin producir y menos espacio para crecer.', 'Pro: lower rent. Con: moving cost, days without production and less room to grow.'), tab('prod'), 'cost')],
+    staff: [o(L('Revisar si cada director paga su sueldo', 'Check whether each director pays for themselves'), L('Pro: quitas lo que no aporta. Contra: despedir baja la moral.', 'Pro: you remove what does not add value. Con: firing lowers morale.'), tab('people'), 'cost', true),
+      o(L('Crecer para que el staff se diluya', 'Grow so staff cost is spread'), L('Pro: el mismo equipo maneja más racks. Contra: necesitas vender más.', 'Pro: the same team handles more racks. Con: you need to sell more.'), tab('sales'), 'growth'),
+      o(L('Congelar contrataciones de oficina', 'Freeze office hiring'), L('Pro: el gasto no sube. Contra: tú cargas con más trabajo.', 'Pro: the cost stops growing. Con: you carry more of the work.'), null, 'safe')],
+    debt: [o(L('Pagar la línea de crédito o un préstamo', 'Pay down the credit line or a loan'), L('Pro: menos interés cada mes. Contra: menos efectivo en el banco.', 'Pro: less interest every month. Con: less cash in the bank.'), tab('fin'), 'safe', true),
+      o(L('Mejorar tu calificación con el banco', 'Improve your bank grade'), L('Pro: tasas más bajas. Contra: tarda meses de buenos resultados.', 'Pro: lower rates. Con: it takes months of good results.'), tab('fin'), 'cost'),
+      o(L('Evitar factoraje y sobregiros', 'Avoid factoring and overdrafts'), L('Pro: son el dinero más caro. Contra: necesitas colchón de efectivo.', 'Pro: they are the most expensive money. Con: you need a cash cushion.'), tab('fin'), 'growth')]
+  };
+  M.power = [o(L('Automatizar las pruebas de burn-in', 'Automate burn-in testing'), L('Pro: menos horas de burn-in y menos luz. Contra: inversión.', 'Pro: fewer burn-in hours and less power. Con: investment.'), tab('improve'), 'cost', true), M.quality[0], M.labor[2]];
+  M.freight = [o(L('Consolidar compras en menos embarques', 'Consolidate purchases into fewer shipments'), L('Pro: menos fletes. Contra: más inventario.', 'Pro: less freight. Con: more inventory.'), tab('buy'), 'cost', true), M.mat[1], M.mat[2]];
+  M.equip = [o(L('Vender o devolver equipo que no usas', 'Sell or return equipment you do not use'), L('Pro: menos depreciación y renta. Contra: menos capacidad si crece la demanda.', 'Pro: less depreciation and lease cost. Con: less capacity if demand grows.'), tab('prod'), 'cost', true), M.labor[2], M.labor[1]];
+  M.fixed = M.staff; M.fixedAll = [M.labor[2], M.staff[0], M.rent[0]]; M.credit = [o(L('Pedir anticipo a clientes nuevos', 'Ask new customers for deposits'), L('Pro: menos riesgo de no cobrar. Contra: algunos no aceptan.', 'Pro: less risk of not collecting. Con: some will not accept.'), tab('sales'), 'safe', true), M.debt[2], M.mat[2]];
+  M.novol = [Object.assign({}, M.labor[2], { fix: true }), M.staff[2], M.labor[1]];
+  M.cogs = M.labor; M.gp = M.labor; M.vol = M.labor; M.ontime = [o(L('Prometer plazos que sí puedes cumplir', 'Promise lead times you can meet'), L('Pro: se acaban las penalizaciones. Contra: pierdes alguna cotización.', 'Pro: no more penalties. Con: you lose some quotes.'), tab('sales'), 'safe', true), o(L('Tiempo extra para ponerte al día', 'Overtime to catch up'), L('Pro: entregas a tiempo pronto. Contra: 50% más caro por hora.', 'Pro: on-time delivery soon. Con: 50% more per hour.'), pol('ot', true), 'growth'), M.labor[1]];
+  const list = (M[kind] || M.labor).slice(0, 3);
+  return list.map(x => Object.assign({}, x));
+}
+function plWalk(st, mi, X) {
+  const { L, money, pct } = X;
+  const M = E.movesRange(st, mi, mi), P = mi > 0 ? E.movesRange(st, mi - 1, mi - 1) : null;
+  const val = (k, MM) => { const l = E.PL.find(x => x.k === k); return l && MM ? l.f(MM) : 0; };
+  const rev = val('netRevenue', M), prevRev = P ? val('netRevenue', P) : 0;
+  const snap = st.months.find(x => x.mi === mi), psnap = st.months.find(x => x.mi === mi - 1);
+  const racks = snap ? snap.delivered : 0, pracks = psnap ? psnap.delivered : 0;
+  const isCost = k => { const l = E.PL.find(x => x.k === k); return !!(l && (l.sub || ['cogs', 'sga', 'interest', 'fees', 'inctax', 'deductions'].includes(k))); };
+  const rows = [];
+  for (const k of PL_MAIN) {
+    const z = x => Math.abs(x) < 0.5 ? 0 : x;
+    const v = z(val(k, M)), pv = P ? z(val(k, P)) : null;
+    if (!PL_ALWAYS.has(k) && Math.abs(v) < 1 && Math.abs(pv || 0) < 1) continue;
+    const x = PLX[k] || ['', '', 'none'];
+    const share = rev > 0 ? v / rev : null;
+    let why = '';
+    if (pv == null) why = L('Es tu primer mes, no hay con qué comparar.', 'It is your first month, there is nothing to compare with.');
+    else {
+      const d = v - pv;
+      if (Math.abs(d) < Math.max(50, Math.abs(pv) * 0.03)) why = L('Casi igual que el mes pasado.', 'About the same as last month.');
+      else {
+        const up = d > 0;
+        why = L(`${up ? 'Subió' : 'Bajó'} ${money(Math.abs(d))} contra el mes pasado (${money(pv)}).`, `It went ${up ? 'up' : 'down'} ${money(Math.abs(d))} versus last month (${money(pv)}).`);
+        const perR = racks ? v / racks : null, pPerR = pracks ? pv / pracks : null;
+        if (['mat', 'dl', 'util', 'freight', 'warranty', 'cogs', 'grossSales', 'netRevenue', 'grossProfit'].includes(k) && perR != null && pPerR != null && racks !== pracks) {
+          const same = Math.abs(perR - pPerR) < Math.abs(pPerR) * 0.08;
+          why += same ? L(` Fue por volumen: entregaste ${racks} racks contra ${pracks}; por rack quedó casi igual (${money(perR)}).`, ` It was volume: you delivered ${racks} racks versus ${pracks}; per rack it stayed about the same (${money(perR)}).`)
+            : L(` Por rack pasó de ${money(pPerR)} a ${money(perR)}, así que no fue solo volumen.`, ` Per rack it went from ${money(pPerR)} to ${money(perR)}, so it was not only volume.`);
+        } else if (['rent', 'sal', 'benefits', 'ins', 'softw', 'sga'].includes(k)) why += L(' Es un gasto fijo: no depende de cuántos racks hagas, cambia cuando contratas, te mudas o cambian los contratos.', ' It is a fixed cost: it does not depend on how many racks you build; it changes when you hire, move or contracts change.');
+        else if (k === 'dl' && racks === pracks) why += L(' Cambió la gente, los sueldos o las horas extra.', ' People, wages or overtime changed.');
+      }
+    }
+    rows.push({ k, v, pv, share, total: (E.PL.find(l => l.k === k) || {}).total || 0, sub: !!(E.PL.find(l => l.k === k) || {}).sub, cost: isCost(k), what: L(x[0], x[1]), why, kind: x[2] });
+  }
+  // the line that hurts most: biggest controllable cost as a share of revenue
+  const cand = rows.filter(r => r.sub || ['interest', 'fees', 'deductions'].includes(r.k)).filter(r => r.v > 0);
+  const worst = cand.sort((a, b) => b.v - a.v)[0] || null;
+  const gp = val('grossProfit', M), sga = val('sga', M), ni = val('netIncome', M), ebitda = val('ebitda', M), fin = val('interest', M) + val('fees', M);
+  const story = rev <= 0
+    ? L(`Este mes no entregaste racks, así que no hubo venta. Aun así gastaste ${money(val('cogs', M) + sga)} en sueldos, renta y operación, y por eso ${ni < 0 ? 'perdiste ' + money(-ni) : 'el resultado fue ' + money(ni)}. Mientras no entregues, cada mes cuesta eso.`,
+        `This month you delivered no racks, so there were no sales. You still spent ${money(val('cogs', M) + sga)} on wages, rent and operations, which is why ${ni < 0 ? 'you lost ' + money(-ni) : 'the result was ' + money(ni)}. Until you deliver, every month costs that much.`)
+    : L(`Vendiste ${money(rev)}${racks ? ` (${racks} racks)` : ''}. Hacer esos racks costó ${money(val('cogs', M))}, así que te quedaron ${money(gp)} de utilidad bruta (${pct(gp / rev)}). Los gastos fijos se comieron ${money(sga)}${fin > 1 ? ` y el banco ${money(fin)}` : ''}. Resultado: ${ni >= 0 ? 'ganaste ' + money(ni) : 'perdiste ' + money(-ni)}. Tu EBITDA fue ${money(ebitda)}.`,
+        `You sold ${money(rev)}${racks ? ` (${racks} racks)` : ''}. Building those racks cost ${money(val('cogs', M))}, so you kept ${money(gp)} of gross profit (${pct(gp / rev)}). Fixed costs ate ${money(sga)}${fin > 1 ? ` and the bank ${money(fin)}` : ''}. Result: you ${ni >= 0 ? 'earned ' + money(ni) : 'lost ' + money(-ni)}. Your EBITDA was ${money(ebitda)}.`);
+  const worstTxt = worst ? L(`El renglón que más te cuesta es ${'{label}'}: ${money(worst.v)}${rev > 0 ? ` (${pct(worst.v / rev)} de tu venta)` : ''}. Ahí está tu mejor palanca.`, `The line that costs you most is {label}: ${money(worst.v)}${rev > 0 ? ` (${pct(worst.v / rev)} of your sales)` : ''}. That is your best lever.`) : '';
+  const options = plOptions(st, rev <= 0 ? 'novol' : worst ? worst.kind : 'labor', X);
+  const r = pickRec(st, options, ni < 0 ? 'bad' : 'ok'); options.forEach((x, i) => x.rec = i === r);
+  return { rows, story, worst, worstTxt, options, rev, racks };
+}
+function plRow(st, mi, k, X) { const W = plWalk(st, mi, X); return { row: W.rows.find(r => r.k === k), rev: W.rev, options: W.options }; }
+
+const METRICS = ['cash', 'runway', 'ccc', 'margin', 'ebitda', 'otd', 'backlog', 'fpy', 'bn'];
+root.RFCoach = { facts, reading, explain, commitMonth, METRICS, plWalk, plRow, plOptions };
+})(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
 <script>
@@ -2525,7 +3300,7 @@ let renderer = null, scene = null, camera = null, rig = null, table = null, dio 
 let panels = {}, picks = [], session = null, xrMode = null, running = false, needCenter = 0, headH = 1.6, tableDy = 0;
 const ctrls = [], hands = [], pokeState = [{}, {}], cursors = [];
 let lastClick = 0, toastUntil = 0, toastMsg = '';
-const ui = { mTab: 'plant', mStation: null, decIdx: 0, monthTab: 'com', q: {}, hireProf: 'proc', hireLv: 1 };
+const ui = { mTab: 'plant', mStation: null, decIdx: 0, monthTab: 'coach', coIdx: 0, coWk: 0, q: {}, hireProf: 'proc', hireLv: 1 };
 
 /* ---------- colors and type ---------- */
 const C = { bg: 'rgba(14,24,56,0.95)', card: '#18295a', card2: '#1f3470', line: '#34509a', ink: '#eef3ff', muted: '#a3b6dd', acc: '#2f6bff', accHot: '#5b8cff', accInk: '#ffffff', good: '#34d399', warn: '#fb923c', bad: '#fb7185', teal: '#2dd4bf',
@@ -2631,6 +3406,49 @@ function decideNow(id, opt, p) {
 }
 function toast(msg) { toastMsg = msg; toastUntil = performance.now() + 3200; if (panels.toast) { panels.toast.render(); panels.toast.mesh.visible = true; } }
 
+/* ---------- advisor coach pages ---------- */
+const VTAB = { people: 'people', improve: 'improve', prod: 'plant', buy: 'plant', plant: 'plant', fin: 'bank', metrics: 'coach' };
+function coachRun(o) {
+  const a = o && o.act; if (!a) return;
+  const go = x => { if (VTAB[x]) { ui.mTab = VTAB[x]; ui.mStation = null; } else toast(t('coVrSales')); };
+  if (a.kind === 'act') { const r = act(a.name, a.args || {}, t('coDone')); if (r && !r.err && a.then) go(a.then); }
+  else go(a.tab);
+  refresh();
+}
+function coachTopic(P, T, yMax) {
+  const g = P.g, y0 = P.y;
+  avatar(P, 36, y0, T.who);
+  P.text(T.title.toUpperCase(), { x: 104, y: y0 - 2, size: 34, weight: 700, fam: F.d, nowrap: true, w: P.W - 300 });
+  P.text(UI().whoName(T.who), { x: 104, y: y0 + 34, size: 20, color: C.muted, nowrap: true, w: 400 });
+  const lab = t('sev_' + T.sev); P.font(22, 600); const pw = g.measureText(lab).width + 28;
+  rr(g, P.W - 36 - pw, y0 + 6, pw, 36, 18); g.fillStyle = sevColor(T.sev); g.fill(); g.fillStyle = '#0b1430'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(lab, P.W - 36 - pw / 2, y0 + 24);
+  P.y = y0 + 68;
+  if (T.metrics.length) P.text(T.metrics.map(m => `${t('mx_' + m.k)} ${m.v}`).join('   ·   '), { size: 22, fam: F.m, color: C.teal, max: 2, gap: 10 });
+  if (!T.learned) P.text(T.concept, { size: 20, color: C.muted, max: 3, lh: 24, gap: 8 });
+  P.text(t('coNow').toUpperCase(), { size: 18, color: C.muted, gap: 2, nowrap: true });
+  P.text(T.now, { size: 23, max: 3, lh: 28, gap: 6 });
+  P.text(t('coTrend').toUpperCase(), { size: 18, color: C.muted, gap: 2, nowrap: true });
+  P.text(T.trend, { size: 23, max: 2, lh: 28, gap: 10 });
+  const left = yMax - P.y, bh = Math.max(64, Math.min(118, (left - 12) / 3));
+  T.options.forEach((o, i) => {
+    const sub = wrap((P.font(19, 400, F.m), g), o.why, P.W - 72 - 40).slice(0, bh > 100 ? 2 : bh > 76 ? 1 : 0);
+    const fit = (txt, w) => { P.font(23, 600); if (g.measureText(txt).width <= w) return txt; while (txt.length > 4 && g.measureText(txt + '…').width > w) txt = txt.slice(0, -1); return txt + '…'; };
+    P.btn('co_' + T.id + i, fit((o.rec ? '★ ' : '') + o.title + (o.act ? '' : ' · ' + t('coNoAction')), P.W - 72 - 40), 36, P.y, P.W - 72, bh - 10, { size: bh > 76 ? 23 : 21, sub: sub.length ? sub : null, primary: o.rec && !!o.act, disabled: !o.act, on: () => coachRun(o) });
+    P.y += bh;
+  });
+}
+function coachPager(P, n, key, extra) {
+  const i = ui[key];
+  P.btn('cp_prev', '◀', 36, P.y, 110, 60, { size: 28, disabled: i <= 0, on: () => { ui[key] = Math.max(0, ui[key] - 1); refresh(); } });
+  P.btn('cp_next', '▶', P.W - 146, P.y, 110, 60, { size: 28, disabled: i >= n - 1, on: () => { ui[key] = Math.min(n - 1, ui[key] + 1); refresh(); } });
+  P.text(`${i + 1} / ${n}`, { x: 160, y: P.y + 16, w: 90, size: 24, color: C.muted, nowrap: true });
+  if (extra) {
+    P.btn('cp_say', '🔊 ' + t('coListen'), 262, P.y, 240, 60, { size: 24, on: () => { const x = currentSpeech(true); if (x) say(x, true); } });
+    P.btn(extra.id, extra.label, 516, P.y, P.W - 146 - 14 - 516, 60, { size: 24, primary: true, on: extra.on });
+  } else P.btn('cp_say', '🔊 ' + t('coListen'), P.W / 2 - 150, P.y, 300, 60, { size: 24, on: () => { const x = currentSpeech(true); if (x) say(x, true); } });
+  P.y += 78;
+}
+
 /* ---------- MEETING panel ---------- */
 function drawMeeting(P) {
   if (st().setup) return drawSetupMeet(P);
@@ -2658,10 +3476,17 @@ function drawMeeting(P) {
       P.y = y + 40; g.fillStyle = C.line; g.fillRect(36, P.y - 4, P.W - 72, 1);
     }
   } else P.text(t('noData'), { color: C.muted });
-  P.y += 10; P.text(t('committee'), { size: 24, weight: 600, color: C.muted, gap: 8 });
-  const com = (s.comments || []).slice(0, 3);
-  if (!com.length) P.text(t('noComments'), { color: C.muted, size: 26 });
-  for (const c of com) advisorLine(P, c, 2);
+  P.y += 10; P.text(t('coTitle'), { size: 24, weight: 600, color: C.muted, gap: 8 });
+  const R = UI().coachReading('week');
+  const top = R.topics.find(T => T.sev === 'bad') || R.topics.find(T => T.sev === 'warn') || R.topics[0];
+  if (top) {
+    const y0 = P.y; avatar(P, 36, y0, top.who);
+    P.text(`${top.title} · ${t('sev_' + top.sev)}`, { x: 104, y: y0, size: 24, color: sevColor(top.sev), weight: 600, nowrap: true });
+    const h = P.text(top.now, { x: 104, y: y0 + 32, size: 23, max: 4, lh: 29 });
+    P.y = y0 + 40 + h;
+    P.btn('coOpen', t('coVrOpen'), 36, P.y, P.W - 72, 70, { size: 26, on: () => { ui.mTab = 'coach'; ui.coWk = R.topics.indexOf(top); refresh(); } });
+    P.y += 84;
+  }
   P.btn('advance', t('advance') + ' ▶', 36, P.H - 130, P.W - 72, 96, { primary: true, size: 34, disabled: !!s.over, on: () => { UI().advance(); refresh(); } });
 }
 
@@ -2745,13 +3570,34 @@ function buyControls(P, D) {
 function drawMonthly(P) {
   const s = st(), snap = s.months[s.months.length - 1], prev = s.months[s.months.length - 2], mi = snap.mi;
   header(P, `${t('monthlyMeeting')} · ${t('month')} ${snap.m + 1} · ${t('year')} ${snap.y + 1}`);
-  const tabs = [['com', t('committeeReading')], ['pl', t('pl')], ['bs', t('bs')], ['cf', t('cfs')]];
-  const tw = (P.W - 72 - 3 * 12) / 4;
+  const tabs = [['coach', t('coTab')], ['com', t('committeeReading')], ['pl', t('pl')], ['bs', t('bs')], ['cf', t('cfs')]];
+  const tw = (P.W - 72 - 4 * 12) / 5;
   tabs.forEach((x, i) => P.btn('mt_' + x[0], x[1], 36 + i * (tw + 12), P.y, tw, 62, { size: 24, sel: ui.monthTab === x[0], on: () => { ui.monthTab = x[0]; refresh(); } }));
   P.y += 84;
   const g = P.g;
   const line = (label, val, bold, color) => { P.text(label, { x: 50, y: P.y, size: 27, weight: bold ? 700 : 400, w: 700, nowrap: true }); P.text(val, { x: 700, y: P.y, w: P.W - 750, size: 27, fam: F.m, align: 'right', nowrap: true, color, weight: bold ? 600 : 400 }); P.y += 38; g.fillStyle = C.line; g.fillRect(36, P.y - 4, P.W - 72, 1); };
-  if (ui.monthTab === 'com') {
+  if (ui.monthTab === 'coach') {
+    const R = UI().coachReading('month');
+    const n = R.topics.length + 1; ui.coIdx = Math.min(ui.coIdx, n - 1);
+    const closeM = () => { UI().closeMonth(); ui.monthTab = 'coach'; ui.coIdx = 0; refresh(); };
+    coachPager(P, n, 'coIdx', { id: 'closeMonth', label: t('closeMonthly'), on: closeM });
+    if (ui.coIdx === 0) {
+      P.text(t('coGrades'), { size: 34, weight: 700, fam: F.d, gap: 10 });
+      const gr = R.grades.filter(x => x.g !== 'pending');
+      if (!gr.length) P.text(t('coNoGrades'), { color: C.muted, size: 26 });
+      for (const x of gr.slice(0, 5)) {
+        const y0 = P.y; const col = x.g === 'good' ? C.good : x.g === 'bad' ? C.bad : C.warn;
+        rr(g, 36, y0, 130, 40, 20); g.fillStyle = col; g.fill(); P.font(22, 700); g.fillStyle = '#0b1430'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t('g_' + x.g), 101, y0 + 20);
+        P.text(`${x.label}${x.opt ? ' → ' + x.opt : ''}`, { x: 186, y: y0 + 4, size: 24, weight: 600, nowrap: true });
+        const h = P.text(x.why, { x: 186, y: y0 + 36, size: 22, max: 2, lh: 27, color: C.ink });
+        let hh = 36 + h;
+        if (x.alt) hh += P.text(t('coAlt') + ': ' + x.alt, { x: 186, y: y0 + hh + 2, size: 20, max: 2, lh: 25, color: C.muted }) + 4;
+        P.y = y0 + hh + 16;
+      }
+      P.text(t('coVrNext'), { size: 22, color: C.muted, y: P.H - 60 });
+    } else coachTopic(P, R.topics[ui.coIdx - 1], P.H - 24);
+    return;
+  } else if (ui.monthTab === 'com') {
     const tiles = [[t('netRevenue'), M(snap.rev), null], [t('netIncome'), M(snap.ni), snap.ni >= 0], ['EBITDA', M(snap.ebitda), snap.ebitda >= 0], [t('cash'), M(snap.cash), prev ? snap.cash >= prev.cash : null],
       ['CCC', Math.round(snap.ccc) + ' ' + t('days'), null], [t('kOtd'), PCT(snap.otd), snap.otd == null ? null : snap.otd >= 0.95], ['FPY', PCT(snap.fpy), snap.fpy == null ? null : snap.fpy >= 0.92], [t('value'), M(snap.value), null]];
     const tw2 = (P.W - 72 - 3 * 14) / 4;
@@ -2773,7 +3619,7 @@ function drawMonthly(P) {
     for (const k of ['collections', 'custDeposits', 'suppliers', 'payroll', 'overhead']) line(t('cf_' + k), M(c.op[k]));
     line(t('cf_op'), M(c.cfo), true); line(t('cf_inv'), M(c.cfi), true); line(t('cf_fin'), M(c.cff), true); line(t('cf_net'), M(c.net), true, c.net < 0 ? C.bad : C.good);
   }
-  P.btn('closeMonth', t('closeMonthly'), P.W - 36 - 520, P.H - 116, 520, 84, { primary: true, size: 28, on: () => { UI().closeMonth(); ui.monthTab = 'com'; refresh(); } });
+  P.btn('closeMonth', t('closeMonthly'), P.W - 36 - 520, P.H - 116, 520, 84, { primary: true, size: 28, on: () => { UI().closeMonth(); ui.monthTab = 'coach'; ui.coIdx = 0; refresh(); } });
 }
 
 /* ---------- SETUP (shopping) ---------- */
@@ -2808,10 +3654,11 @@ function drawSetupMeet(P) {
 /* ---------- MANAGE panel ---------- */
 function drawManage(P) {
   const s = st();
-  const tabs = [['plant', t('tabPlant')], ['people', t('tabPeople')], ['improve', t('tabImprove')], ['bank', t('bank')], ['menu', t('menu')]];
-  const tw = (P.W - 72 - 4 * 10) / 5;
+  const tabs = [['coach', t('coVrTab')], ['plant', t('tabPlant')], ['people', t('tabPeople')], ['improve', t('tabImprove')], ['bank', t('bank')], ['menu', t('menu')]];
+  const tw = (P.W - 72 - 5 * 10) / 6;
   tabs.forEach((x, i) => P.btn('mt' + x[0], x[1], 36 + i * (tw + 10), 30, tw, 64, { size: 22, sel: ui.mTab === x[0], on: () => { ui.mTab = x[0]; ui.mStation = null; refresh(); } }));
   P.y = 120;
+  if (ui.mTab === 'coach') { const R = UI().coachReading('week'); if (!R.topics.length) { P.text(t('noData'), { color: C.muted }); return; } ui.coWk = Math.min(ui.coWk, R.topics.length - 1); coachPager(P, R.topics.length, 'coWk'); return coachTopic(P, R.topics[ui.coWk], P.H - 30); }
   if (ui.mTab === 'plant') return ui.mStation ? manageStation(P, ui.mStation) : managePlant(P);
   if (ui.mTab === 'people') return managePeople(P);
   if (ui.mTab === 'improve') return manageImprove(P);
@@ -3002,21 +3849,23 @@ function advisorFrame(now) {
     const wp = A.g.localToWorld(new T.Vector3(0, 0.2, 0)); A.bubble.mesh.position.copy(rig.worldToLocal(wp)); A.bubble.mesh.lookAt(camPos); A.bubble.mesh.visible = true;
   }
 }
-function currentSpeech() {
+function currentSpeech(coachOnly) {
   const s = st(), U = UI();
+  if (coachOnly) { const m = s.pendingMonth != null && s.months.length; const x = U.coachSpeech(m ? 'month' : 'week'); return { key: 'c' + s.w, text: x.text, who: x.who, bubble: x.bubble }; }
   if (s.setup) return { key: 'setup' + s.fac + s.eqList.length, c: U.setupTip() };
-  if (s.pendingMonth != null && s.months.length) { const snap = s.months[s.months.length - 1]; const c = E.monthlyComments(s, snap)[0]; return { key: 'm' + snap.mi, c }; }
+  if (s.pendingMonth != null && s.months.length) { const snap = s.months[s.months.length - 1]; const x = U.coachSpeech('month'); return { key: 'm' + snap.mi, text: x.text, who: x.who, bubble: x.bubble }; }
   if (U.lessonQ.length) { const k = U.lessonQ[U.lessonQ.length - 1]; return { key: 'l' + k, text: t('ls_' + k) + '. ' + t('lb_' + k) }; }
   const D = s.decisions[Math.min(ui.decIdx, s.decisions.length - 1)];
   if (D && D.recs[0]) return { key: 'd' + D.id, c: { who: D.recs[0].who, k: D.recs[0].k, p: D.recs[0].p } };
-  return { key: 'w' + s.w, c: U.topComment() };
+  const x = U.coachSpeech('week');
+  return { key: 'w' + s.w, text: x.text, who: x.who, bubble: x.bubble };
 }
 function speakNew() { const x = currentSpeech(); if (!x || x.key === spokenKey) return; spokenKey = x.key; say(x); }
 function speakNow() { const x = currentSpeech(); if (x) { spokenKey = x.key; say(x, true); } }
 function say(x, force) {
   const U = UI();
-  const who = x.c ? x.c.who : 'mentor', name = U.whoName(who), text = x.text || (x.c ? t(x.c.k, x.c.p) : '');
-  const speak = () => { if (x.text) U.Voice.say(x.text, 'mentor', force); else if (x.c) U.Voice.say(`${name}. ${text}`, who, force); };
+  const who = x.who || (x.c ? x.c.who : 'mentor'), name = U.whoName(who), text = x.bubble || x.text || (x.c ? t(x.c.k, x.c.p) : '');
+  const speak = () => { if (x.text) U.Voice.say(x.text, who, force); else if (x.c) U.Voice.say(`${name}. ${text}`, who, force); };
   if (advisor.g && running) walkIn(who, name, text, speak); else speak();
 }
 function drawToast(P) {
@@ -3268,7 +4117,7 @@ VR._state = () => ({ running, ui: JSON.parse(JSON.stringify({ mTab: ui.mTab, mSt
 (function () {
 'use strict';
 const E = window.RF, I = window.I18N;
-let st = null, lang = 'es', tab = 'plant', lessonQ = [], monthTab = 'com', finTab = 'pl', finPeriod = 'm', decSel = {};
+let st = null, lang = 'es', tab = 'plant', lessonQ = [], monthTab = 'coach', finTab = 'pl', finPeriod = 'm', decSel = {};
 const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const KEY = 'rackforge_save_v1';
@@ -3407,6 +4256,118 @@ function setupTip() {
   return { who: 'mentor', area: 'cfo', sev: 'ok', k: 'mSetup2', p: { cash } };
 }
 
+/* ---------- advisor coach: reading, three options, explain any number ---------- */
+const CO = window.RFCoach;
+let coachR = null, optSeq = 0, monthlyReopen = null, spokenMonth = -1;
+const coachOpts = {};
+function coachX() { return { lang, L: (a, b) => lang === 'es' ? a : b, money, pct, sName: s => t('st_' + s), roleName: r => t('role_' + r), profName: p => t('prof_' + p), lvName: l => t('lv' + l), t, optLabel }; }
+function coachReading(mode) { coachR = CO.reading(st, coachX(), mode); return coachR; }
+const sevPill = s => s === 'ok' ? 'good' : s === 'bad' ? 'bad' : s === 'warn' ? 'warn' : 'info';
+function optHtml(o) {
+  const id = 'co' + (++optSeq); coachOpts[id] = o;
+  return `<div class="copt ${o.rec ? 'rec' : ''}"><div>${o.rec ? `<div class="tag">${t('coRec')}</div>` : ''}<div class="ttl">${esc(o.title)}</div></div>${o.act ? `<button class="btn small ${o.rec ? 'primary' : ''}" data-co="${id}">${t(o.act.kind === 'tab' ? 'coGo' : 'coDo')}</button>` : `<span class="small muted">${t('coNoAction')}</span>`}<div class="why">${esc(o.why)}</div></div>`;
+}
+function mxHtml(m) { return `<button class="mx" data-mx="${m.k}"><span class="sev ${m.sev}"></span>${esc(t('mx_' + m.k))} <b>${esc(m.v)}</b></button>`; }
+function topicHtml(T, collapsed) {
+  const body = `${T.metrics.length ? `<div class="mxs">${T.metrics.map(mxHtml).join('')}</div>` : ''}
+   ${T.learned ? `<details><summary>${t('coWhat')}</summary><p class="concept">${esc(T.concept)}</p></details>` : `<div><div class="lbl">${t('coConcept')}</div><p class="concept">${esc(T.concept)}</p></div>`}
+   <div><div class="lbl">${t('coNow')}</div><p>${esc(T.now)}</p></div>
+   <div><div class="lbl">${t('coTrend')}</div><p>${esc(T.trend)}</p></div>
+   <div><div class="lbl">${t('coOptions')}</div><div class="copts">${T.options.map(optHtml).join('')}</div></div>`;
+  const hd = `<div class="hd">${avatar(T.who)}<div style="flex:1;min-width:0"><h4>${esc(T.title)}</h4><div class="nm">${esc(whoName(T.who))}</div></div><span class="pill ${sevPill(T.sev)}">${t('sev_' + T.sev)}</span></div>`;
+  if (collapsed) return `<details class="coach ${T.sev}"><summary>${hd}<div class="small muted" style="margin-top:4px">${esc(T.say)} <span style="color:var(--accent)">${t('coMore')}</span></div></summary>${body}</details>`;
+  return `<div class="coach ${T.sev}">${hd}${body}</div>`;
+}
+function runOpt(o) {
+  const a = o && o.act; if (!a) return;
+  const leaving = a.kind === 'tab' || a.then;
+  if (a.kind === 'act') {
+    const r = E.act(st, a.name, a.args || {});
+    if (r && r.err) { toast(t('e_' + r.err)); return; }
+    toast(t('coDone'));
+  }
+  if (leaving) { tab = a.kind === 'tab' ? a.tab : a.then; if (document.getElementById('mmClose')) { st.pendingMonth = null; monthlyReopen = null; monthTab = 'coach'; } closeModal(); }
+  else if (monthlyReopen && document.getElementById('mmClose')) { save(); renderAll(); monthlyReopen(); return; }
+  after();
+}
+function coachSpeak() {
+  const R = coachR || coachReading('week');
+  const top = R.topics.find(T => T.sev === 'bad') || R.topics.find(T => T.sev === 'warn') || R.topics[0];
+  if (top) MapView.advise(top.who, whoName(top.who), top.say);
+  Voice.say(R.speech, top ? top.who : 'mentor');
+}
+function openExplain(key) {
+  const d = CO.explain(st, key, coachX()); if (!d) return;
+  const back = document.getElementById('mmClose') ? monthlyReopen : null;
+  const sec = (k, v) => v ? `<div><div class="lbl">${t(k)}</div><p>${esc(v)}</p></div>` : '';
+  openModal(`${d.name} · ${d.val}`, `<div class="coach ${d.sev}" style="border-top:0;border-right:0;border-bottom:0"><div class="hd">${avatar(d.who)}<div style="flex:1"><div class="nm">${esc(whoName(d.who))}</div></div><span class="pill ${sevPill(d.sev)}">${t('sev_' + d.sev)}</span></div>${sec('coWhatIs', d.what)}${sec('coCalc', d.calc)}${sec('coRef', d.ref)}${sec('coMove', d.move)}<div><div class="lbl">${t('coOptions')}</div><div class="copts">${d.options.map(optHtml).join('')}</div></div></div>`,
+    back ? `<button class="btn" id="exBack">${t('coBack')}</button>` : '');
+  if (back) { $('#exBack').onclick = back; monthlyReopen = back; }
+  Voice.say(`${d.name}: ${d.val}. ${d.what} ${d.calc} ${d.ref} ${d.move}`, d.who, true);
+}
+document.addEventListener('click', e => {
+  const c = e.target.closest && e.target.closest('[data-co]'); if (c) { e.preventDefault(); runOpt(coachOpts[c.dataset.co]); return; }
+  const m = e.target.closest && e.target.closest('[data-mx]'); if (m) { e.preventDefault(); openExplain(m.dataset.mx); return; }
+  const sp = e.target.closest && e.target.closest('[data-say]'); if (sp) { e.preventDefault(); const R = coachR || coachReading('week'); Voice.say((sp.dataset.say === 'month' && monthSpeech) || R.speech, 'mentor', true); }
+});
+let monthSpeech = '';
+/* ---------- guided P&L ---------- */
+function plWalkBtn(mi) { return `<div class="lesson" style="display:flex;gap:10px;align-items:center;justify-content:space-between;margin:8px 0"><div class="small">${t('plWalkHint')}</div><button class="btn primary small" data-plw="${mi}">🎓 ${t('plWalk')}</button></div>`; }
+function plRowHtml(r, rev) {
+  const pv = r.pv == null ? '' : `<span class="small muted">${t('prevMonth')}: ${full(r.pv)}</span>`;
+  return `<div class="tiles" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))"><div class="tile ${r.total ? 'good' : ''}"><small>${esc(plLabel(r.k))}</small><b>${full(r.v)}</b>${pv}</div>${rev > 0 && r.share != null && !['grossSales', 'netRevenue'].includes(r.k) ? `<div class="tile"><small>${t('plShare')}</small><b>${pct(r.share)}</b></div>` : ''}</div>
+   <div><div class="lbl">${t('coWhatIs')}</div><p>${esc(r.what)}</p></div>
+   <div><div class="lbl">${t('plWhy')}</div><p>${esc(r.why)}</p></div>`;
+}
+function plBack() { return document.getElementById('mmClose') || document.getElementById('exBack') ? monthlyReopen : null; }
+function openPlRow(k, mi) {
+  const back = plBack();
+  const X = coachX(), R = CO.plRow(st, mi, k, X); if (!R.row) return;
+  const r = R.row, opts = CO.plOptions(st, r.kind, X); opts[0].rec = true;
+  openModal(`${plLabel(k)} · ${full(r.v)}`, `<div class="coach info" style="border-top:0;border-right:0;border-bottom:0">${plRowHtml(r, R.rev)}${r.kind !== 'none' ? `<div><div class="lbl">${t('coOptions')}</div><div class="copts">${opts.map(optHtml).join('')}</div></div>` : ''}</div>`,
+    back ? `<button class="btn" id="exBack">${t('coBack')}</button>` : '');
+  if (back) $('#exBack').onclick = back;
+  Voice.say(`${plLabel(k)}: ${money(r.v)}. ${r.what} ${r.why}`, 'cfo', true);
+}
+function openPlWalk(mi, i) {
+  const back = plBack();
+  const X = coachX(), W = CO.plWalk(st, mi, X), n = W.rows.length + 1;
+  i = Math.max(0, Math.min(n - 1, i || 0));
+  const who = st.emps.some(e => e.role === 'cfo') ? 'cfo' : 'mentor';
+  let body, speech;
+  if (i < W.rows.length) {
+    const r = W.rows[i];
+    const flow = W.rows.filter(x => x.total).map(x => `<span class="${x.k === r.k ? 'pill acc' : 'small muted'}">${esc(plLabel(x.k))}</span>`).join(' → ');
+    body = `<div class="small" style="margin-bottom:8px">${flow}</div><div class="coach ${r.total ? 'ok' : 'info'}"><div class="hd">${avatar(who)}<div style="flex:1"><h4>${esc(plLabel(r.k))}</h4><div class="nm">${t('plStep', { i: i + 1, n })}</div></div></div>${plRowHtml(r, W.rev)}</div>`;
+    speech = `${plLabel(r.k)}: ${money(r.v)}${W.rev > 0 && r.share != null && !r.total && r.k !== 'grossSales' ? ', ' + pct(r.share) + ' ' + t('plOfSales') : ''}. ${r.what} ${r.why}`;
+  } else {
+    const wl = W.worst ? W.worstTxt.replace('{label}', plLabel(W.worst.k)) : '';
+    W.options.forEach(o => o.act = o.act || null);
+    body = `<div class="coach ${W.rows.find(x => x.k === 'netIncome') && W.rows.find(x => x.k === 'netIncome').v >= 0 ? 'ok' : 'bad'}"><div class="hd">${avatar(who)}<div style="flex:1"><h4>${t('plStory')}</h4><div class="nm">${t('plStep', { i: n, n })}</div></div></div><p>${esc(W.story)}</p>${wl ? `<p>${esc(wl)}</p>` : ''}<div><div class="lbl">${t('coOptions')}</div><div class="copts">${W.options.map(optHtml).join('')}</div></div></div>`;
+    speech = `${W.story} ${wl}`;
+  }
+  const foot = `${back ? `<button class="btn" id="exBack">${t('coBack')}</button>` : ''}<button class="btn" id="pwPrev" ${i === 0 ? 'disabled' : ''}>◀ ${t('plPrev')}</button><button class="btn" id="pwSay">🔊</button><button class="btn primary" id="pwNext" ${i >= n - 1 ? 'disabled' : ''}>${i === n - 2 ? t('plToStory') : t('plNext')} ▶</button>`;
+  openModal(`🎓 ${t('plWalk')}`, body, foot);
+  if (back) { $('#exBack').onclick = back; monthlyReopen = back; }
+  $('#pwPrev').onclick = () => openPlWalk(mi, i - 1);
+  $('#pwNext').onclick = () => openPlWalk(mi, i + 1);
+  $('#pwSay').onclick = () => Voice.say(speech, who, true);
+  Voice.say(speech, who, true);
+}
+document.addEventListener('click', e => {
+  const w = e.target.closest && e.target.closest('[data-plw]'); if (w) { e.preventDefault(); openPlWalk(+w.dataset.plw, 0); return; }
+  const r = e.target.closest && e.target.closest('[data-plx]'); if (r) { e.preventDefault(); openPlRow(r.dataset.plx, +r.dataset.mi); }
+});
+// speech for VR: the same reading the 2D meeting shows
+function coachSpeech(mode) {
+  const R = coachReading(mode);
+  const top = R.topics.find(T => T.sev === 'bad') || R.topics.find(T => T.sev === 'warn') || R.topics[0];
+  let text = R.speech;
+  if (mode === 'month') { const gr = R.grades.filter(g => g.g !== 'pending'); const c = { good: 0, ok: 0, bad: 0 }; gr.forEach(g => c[g.g]++); if (gr.length) text = t('coGradeSay', { a: c.good, b: c.ok, c: c.bad }) + ' ' + text; }
+  return { text, who: top ? top.who : 'mentor', bubble: top ? top.say : '' };
+}
+document.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('[data-mx][role=button]')) { e.preventDefault(); openExplain(e.target.dataset.mx); } });
+
 /* ---------- persistence ---------- */
 let savedAt = 0;
 function save() { savedAt = Date.now(); try { localStorage.setItem(KEY, JSON.stringify({ st, lang, voice: Voice.on, savedAt })); } catch (e) { /* storage unavailable */ } Cloud.queue(); }
@@ -3419,7 +4380,12 @@ const Cloud = {
   async init() {
     try { this.code = localStorage.getItem('rackforge_code'); this.base = +localStorage.getItem('rackforge_base') || 0; } catch (e) { this.code = null; }
     if (!/^https?:$/.test(location.protocol)) return false;
-    try { const r = await fetch('/api/save?ping=1', { cache: 'no-store' }); const j = r.ok ? await r.json() : null; this.avail = !!(j && j.ok); } catch (e) { this.avail = false; }
+    // the function can take a few seconds to wake up, so try a few times
+    for (let i = 0; i < 4 && !this.avail; i++) {
+      try { const r = await fetch('/api/save?ping=1', { cache: 'no-store' }); const j = r.ok ? await r.json() : null; this.avail = !!(j && j.ok); } catch (e) { this.avail = false; }
+      if (!this.avail && i < 3) await new Promise(f => setTimeout(f, 1500 * (i + 1)));
+    }
+    this.checked = true;
     return this.avail;
   },
   setCode(c, base) { this.code = c; this.setBase(base || 0); try { if (c) localStorage.setItem('rackforge_code', c); else localStorage.removeItem('rackforge_code'); } catch (e) { /* ignore */ } },
@@ -3497,7 +4463,7 @@ function advance() {
   if (r.over) openGameOver();
   else if (r.monthClosed) openMonthly(r.monthClosed);
   else if (r.lessons && r.lessons.length) Voice.say(t('ls_' + r.lessons[0]) + '. ' + t('lb_' + r.lessons[0]), 'mentor');
-  else sayAdvice(topComment());
+  else coachSpeak();
   const m = $('#meeting'); if (m) m.scrollTop = 0;
 }
 
@@ -3526,7 +4492,7 @@ function renderTabs() {
 }
 
 /* ---------- weekly operations meeting ---------- */
-function kpiRow(label, val, target, sev) { return `<div><span class="sev ${sev || 'info'}"></span>${label}</div><div class="v">${val}</div><div class="tg">${target || ''}</div>`; }
+function kpiRow(label, val, target, sev, mx) { return `<div ${mx ? `data-mx="${mx}" role="button" tabindex="0"` : ''}><span class="sev ${sev || 'info'}"></span>${label}${mx ? ' ⓘ' : ''}</div><div class="v">${val}</div><div class="tg">${target || ''}</div>`; }
 function renderMeeting() {
   const el = $('#meeting'); const k = st.kpi; const last = st.hist[st.hist.length - 1];
   const d = dateLabel(st.w);
@@ -3543,16 +4509,20 @@ function renderMeeting() {
   else h += `<div style="display:flex;flex-direction:column;gap:8px">${st.decisions.map(decCard).join('')}</div>`;
   h += `</div>`;
   if (k && last) {
+    const R = coachReading('week');
+    h += `<div><div class="coachbar"><h4 style="margin:0">${t('coTitle')}</h4><button class="btn small" data-say="week">🔊 ${t('coListen')}</button></div><div class="small muted" style="margin:2px 0 6px">${t('coTapHint')}</div><div style="display:grid;gap:8px">${R.topics.map(T => topicHtml(T, T.sev === 'ok' || T.sev === 'info')).join('')}</div></div>`;
+  }
+  if (k && last) {
     const rows = [];
     const sv = (x, good, warn, inv) => x == null ? 'info' : inv ? (x <= good ? 'good' : x <= warn ? 'warn' : 'bad') : (x >= good ? 'good' : x >= warn ? 'warn' : 'bad');
     rows.push(kpiRow(t('kDelivered'), last.delivered, '', last.delivered ? 'good' : 'info'));
-    rows.push(kpiRow(t('kOtd'), pct(k.otd), '≥95%', sv(k.otd, .95, .85)));
-    rows.push(kpiRow(t('kFpy'), pct(k.fpy), '≥92%', sv(k.fpy, .92, .8)));
+    rows.push(kpiRow(t('kOtd'), pct(k.otd), '≥95%', sv(k.otd, .95, .85), 'otd'));
+    rows.push(kpiRow(t('kFpy'), pct(k.fpy), '≥92%', sv(k.fpy, .92, .8), 'fpy'));
     rows.push(kpiRow(t('kDoa'), pct(k.doaRate, 1), '≤1%', sv(k.doaRate, .01, .03, true)));
-    rows.push(kpiRow(t('kBn'), k.bottleneck ? `${t('st_' + k.bottleneck)} ${k.bnUtil > 2 ? '' : pct(Math.min(1, k.bnUtil))}` : '—', '80–95%', k.bottleneck ? (k.bnUtil > 0.98 ? 'warn' : 'good') : 'info'));
+    rows.push(kpiRow(t('kBn'), k.bottleneck ? `${t('st_' + k.bottleneck)} ${k.bnUtil > 2 ? '' : pct(Math.min(1, k.bnUtil))}` : '—', '80–95%', k.bottleneck ? (k.bnUtil > 0.98 ? 'warn' : 'good') : 'info', 'bn'));
     rows.push(kpiRow(t('kWip'), k.wip, '', 'info'));
-    rows.push(kpiRow(t('kBacklog'), money(k.backlogV), '', 'info'));
-    rows.push(kpiRow(t('kRunway'), k.cashWeeks > 52 ? '52+' : Math.max(0, Math.round(k.cashWeeks)), '≥8', sv(k.cashWeeks, 8, 4)));
+    rows.push(kpiRow(t('kBacklog'), money(k.backlogV), '', 'info', 'backlog'));
+    rows.push(kpiRow(t('kRunway'), k.cashWeeks > 52 ? '52+' : Math.max(0, Math.round(k.cashWeeks)), '≥8', sv(k.cashWeeks, 8, 4), 'runway'));
     rows.push(kpiRow(t('kShort'), new Set(last.short).size, '0', last.short.length ? 'bad' : 'good'));
     rows.push(kpiRow(t('kOt'), last.otH, '', last.otH ? 'warn' : 'good'));
     if (st.emps.length) rows.push(kpiRow(t('kMorale'), Math.round(k.morale), '≥65', sv(k.morale, 65, 50)));
@@ -3688,8 +4658,8 @@ function openBuy(D) {
 /* ---------- views ---------- */
 function tilesTop() {
   const k = st.kpi || {}, v = E.valuation(st);
-  const tl = (lab, val, sev) => `<div class="tile ${sev || ''}"><small>${lab}</small><b>${val}</b></div>`;
-  return `<div class="tiles">${tl(t('cash'), money(B('cash')), B('cash') < 0 ? 'bad' : (k.cashWeeks < 6 ? 'warn' : ''))}${tl(t('kBacklog'), money(k.backlogV || 0))}${tl(t('kOtd'), pct(k.otd), k.otd == null ? '' : k.otd >= .95 ? 'good' : k.otd >= .85 ? 'warn' : 'bad')}${tl(t('kFpy'), pct(k.fpy), k.fpy == null ? '' : k.fpy >= .92 ? 'good' : k.fpy >= .8 ? 'warn' : 'bad')}${tl('EBITDA (12m)', money(v.ebitda))}${tl(t('value'), money(v.value))}</div>`;
+  const tl = (lab, val, sev, mx) => `<div class="tile ${sev || ''}" ${mx ? `data-mx="${mx}" role="button" tabindex="0"` : ''}><small>${lab}${mx ? ' ⓘ' : ''}</small><b>${val}</b></div>`;
+  return `<div class="tiles">${tl(t('cash'), money(B('cash')), B('cash') < 0 ? 'bad' : (k.cashWeeks < 6 ? 'warn' : ''), 'cash')}${tl(t('kBacklog'), money(k.backlogV || 0), '', 'backlog')}${tl(t('kOtd'), pct(k.otd), k.otd == null ? '' : k.otd >= .95 ? 'good' : k.otd >= .85 ? 'warn' : 'bad', 'otd')}${tl(t('kFpy'), pct(k.fpy), k.fpy == null ? '' : k.fpy >= .92 ? 'good' : k.fpy >= .8 ? 'warn' : 'bad', 'fpy')}${tl('EBITDA (12m)', money(v.ebitda), '', 'ebitda')}${tl(t('value'), money(v.value))}</div>`;
 }
 function renderView() {
   const v = $('#view');
@@ -3821,7 +4791,8 @@ function viewPeople(v) {
   const roles = ['tech', 'cfo', 'coo', 'eng', 'qa', 'hr', 'bb', 'sales', 'buyer', 'super'];
   const mp = st.mentor ? st.mentor.prof : 'exp', U = st.union || { st: 'none' };
   const unionTxt = U.strike > st.w ? t('unionStrike', { w: dateLabel(U.strike).wk }) : U.st === 'yes' ? t('unionYes', { w: dateLabel(Math.min(U.contractEnd || 0, st.w + 999)).wk }) : U.st === 'drive' ? t('unionDrive', { w: dateLabel(U.vote).wk }) : t('unionNone');
-  v.innerHTML = `<div class="grid2"><div class="card"><h3>${t('owner')} · ${t('mentorCard')}</h3><div class="row">${avatar('mentor')}<b>${t('prof_' + mp)}</b><span class="muted small">${t('mentorStyle_' + mp)}</span></div>
+  const hireT = st.kpi ? coachReading('week').topics.find(x => x.id === 'hire') : null;
+  v.innerHTML = `${hireT ? topicHtml(hireT, false) : ''}<div class="grid2"><div class="card"><h3>${t('owner')} · ${t('mentorCard')}</h3><div class="row">${avatar('mentor')}<b>${t('prof_' + mp)}</b><span class="muted small">${t('mentorStyle_' + mp)}</span></div>
    <div class="row" style="margin-top:8px"><label class="row small"><input type="checkbox" id="oFloor" ${st.owner.floor ? 'checked' : ''}> ${t('ownerWorks')}</label>
    <select class="inp" id="oSt" style="max-width:220px">${['float', ...E.STAGES].map(s => `<option value="${s}" ${st.owner.station === s ? 'selected' : ''}>${t('st_' + s)}</option>`).join('')}</select></div></div>
   <div class="card"><h3>${t('union')}</h3><div class="row"><span class="pill ${U.st === 'yes' ? 'warn' : U.st === 'drive' ? 'warn' : 'info'}">${unionTxt}</span></div><div class="small muted" style="margin-top:6px">${t('unionPros')}</div><div class="small muted">${t('unionCons')}</div></div></div>
@@ -3920,7 +4891,7 @@ function viewFin(v) {
   <div class="card"><div class="row" style="justify-content:space-between"><h3>${t('statements')}</h3><div class="row"><span class="segs">${['pl', 'bs', 'cf'].map(k => `<button class="${finTab === k ? 'on' : ''}" data-ft="${k}">${t(k === 'cf' ? 'cfs' : k)}</button>`).join('')}</span>${finTab !== 'bs' ? `<span class="segs">${['m', 'y', 'a'].map(k => `<button class="${finPeriod === k ? 'on' : ''}" data-fp="${k}">${t(k === 'm' ? 'thisMonth' : k === 'y' ? 'ytd' : 'allTime')}</button>`).join('')}</span>` : ''}</div></div>
   <div class="tbl" id="stmt"></div></div>`;
   const m0 = finPeriod === 'm' ? mi : finPeriod === 'y' ? c.y * 12 : 0;
-  $('#stmt').innerHTML = finTab === 'pl' ? plTable([{ l: t(finPeriod === 'm' ? 'thisMonth' : finPeriod === 'y' ? 'ytd' : 'allTime'), M: E.movesRange(st, m0, mi) }, ...(finPeriod === 'm' && mi > 0 ? [{ l: t('prevMonth'), M: E.movesRange(st, mi - 1, mi - 1) }] : [])])
+  $('#stmt').innerHTML = finTab === 'pl' ? (st.months.length ? plWalkBtn(st.months[st.months.length - 1].mi) : '') + plTable([{ l: t(finPeriod === 'm' ? 'thisMonth' : finPeriod === 'y' ? 'ytd' : 'allTime'), M: E.movesRange(st, m0, mi) }, ...(finPeriod === 'm' && mi > 0 ? [{ l: t('prevMonth'), M: E.movesRange(st, mi - 1, mi - 1) }] : [])], finPeriod === 'm' ? mi : null)
     : finTab === 'bs' ? bsTable([{ l: t('thisMonth'), b: E.balanceAt(st, mi) }, ...(mi > 0 ? [{ l: t('prevMonth'), b: E.balanceAt(st, mi - 1) }] : [])])
     : cfTable([{ l: t(finPeriod === 'm' ? 'thisMonth' : finPeriod === 'y' ? 'ytd' : 'allTime'), c: E.cashFlow(st, m0, mi) }]);
   v.querySelectorAll('[data-ft]').forEach(b => b.onclick = () => { finTab = b.dataset.ft; renderView(); });
@@ -3933,8 +4904,8 @@ function viewFin(v) {
   v.querySelectorAll('[data-pl]').forEach(b => b.onclick = () => { const L = st.loans.find(x => x.id === +b.dataset.pl); doAct('payLoan', { id: L.id, amt: Math.min(L.bal, Math.max(0, B('cash') - 20000)) }); });
 }
 function plLabel(k) { return I['pl_' + k] ? t('pl_' + k) : t(k); }
-function plTable(cols) {
-  const rows = E.PL.map(l => `<tr class="${l.total === 2 ? 'total2' : l.total ? 'total' : l.sub ? 'sub' : ''}"><td>${l.memo ? '<i>' + plLabel(l.k) + '</i>' : plLabel(l.k)}</td>${cols.map(c => `<td class="n">${full(l.f(c.M))}</td>`).join('')}</tr>`).join('');
+function plTable(cols, mi) {
+  const rows = E.PL.map(l => `<tr class="${l.total === 2 ? 'total2' : l.total ? 'total' : l.sub ? 'sub' : ''}"><td ${mi != null ? `data-plx="${l.k}" data-mi="${mi}" role="button" tabindex="0"` : ''}>${l.memo ? '<i>' + plLabel(l.k) + '</i>' : plLabel(l.k)}${mi != null ? ' <span class="small muted">ⓘ</span>' : ''}</td>${cols.map(c => `<td class="n">${full(l.f(c.M))}</td>`).join('')}</tr>`).join('');
   return `<table><thead><tr><th></th>${cols.map(c => `<th class="n">${c.l}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 function bsTable(cols) {
@@ -4001,21 +4972,33 @@ function openMonthly(snap) {
   snap = snap || st.months[st.months.length - 1]; if (!snap) return;
   const mi = snap.mi, prev = st.months[st.months.length - 2];
   const com = E.monthlyComments(st, snap);
+  monthlyReopen = () => openMonthly(snap);
   if (monthTab === 'com' && com[0]) sayAdvice(com[0]);
-  const tl = (lab, a, b, f, good) => { const sev = good == null ? '' : good ? 'good' : 'bad'; return `<div class="tile ${sev}"><small>${lab}</small><b>${f(a)}</b><span class="small muted">${prev ? t('prevMonth') + ': ' + f(b) : ''}</span></div>`; };
+  const tl = (lab, a, b, f, good, mx) => { const sev = good == null ? '' : good ? 'good' : 'bad'; return `<div class="tile ${sev}" ${mx ? `data-mx="${mx}" role="button" tabindex="0"` : ''}><small>${lab}${mx ? ' ⓘ' : ''}</small><b>${f(a)}</b><span class="small muted">${prev ? t('prevMonth') + ': ' + f(b) : ''}</span></div>`; };
   const pv = k => prev ? prev[k] : null;
-  const tabs = `<span class="segs">${['com', 'pl', 'bs', 'cf'].map(k => `<button class="${monthTab === k ? 'on' : ''}" data-mt="${k}">${t(k === 'com' ? 'committeeReading' : k === 'cf' ? 'cfs' : k)}</button>`).join('')}</span>`;
+  const tabs = `<span class="segs">${['coach', 'com', 'pl', 'bs', 'cf'].map(k => `<button class="${monthTab === k ? 'on' : ''}" data-mt="${k}">${t(k === 'coach' ? 'coTab' : k === 'com' ? 'committeeReading' : k === 'cf' ? 'cfs' : k)}</button>`).join('')}</span>`;
   let body = tabs;
-  if (monthTab === 'com') {
-    body += `<div class="tiles">${tl(t('netRevenue'), snap.rev, pv('rev'), money)}${tl(t('netIncome'), snap.ni, pv('ni'), money, snap.ni >= 0)}${tl('EBITDA', snap.ebitda, pv('ebitda'), money, snap.ebitda >= 0)}${tl(t('cash'), snap.cash, pv('cash'), money, prev ? snap.cash >= prev.cash : null)}${tl('CCC', snap.ccc, pv('ccc'), x => x == null ? '—' : Math.round(x) + ' ' + t('days'))}${tl(t('kOtd'), snap.otd, pv('otd'), x => pct(x))}${tl('FPY', snap.fpy, pv('fpy'), x => pct(x))}${tl(t('value'), snap.value, pv('value'), money)}</div>
+  if (monthTab === 'coach') {
+    const R = coachReading('month');
+    CO.commitMonth(st, R);
+    const gr = R.grades.filter(g => g.g !== 'pending'), pend = R.grades.length - gr.length;
+    const gl = { good: t('g_good'), ok: t('g_ok'), bad: t('g_bad') };
+    body += `<div class="coachbar" style="margin-top:8px"><div class="small muted">${t('coIntro')}</div><button class="btn small" data-say="month">🔊 ${t('coListen')}</button></div>
+    <div class="card" style="margin-top:8px"><h3>${t('coGrades')}</h3>${gr.map(g => `<div class="grade"><span class="pill ${g.g === 'good' ? 'good' : g.g === 'bad' ? 'bad' : 'warn'}">${gl[g.g]}</span><div><b>${esc(g.label)}</b>${g.opt ? ' → ' + esc(g.opt) : ''}<div>${esc(g.why)}</div></div>${g.alt ? `<div class="alt">${t('coAlt')}: ${esc(g.alt)}</div>` : ''}</div>`).join('') || `<div class="muted small">${t('coNoGrades')}</div>`}${pend ? `<div class="small muted" style="margin-top:6px">${t('coPending', { n: pend })}</div>` : ''}</div>
+    <div style="display:grid;gap:10px;margin-top:10px">${R.topics.map(T => topicHtml(T, false)).join('')}</div>`;
+    const cnt = { good: 0, ok: 0, bad: 0 }; gr.forEach(g => cnt[g.g]++);
+    monthSpeech = (gr.length ? t('coGradeSay', { a: cnt.good, b: cnt.ok, c: cnt.bad }) + ' ' : '') + R.speech;
+    if (spokenMonth !== snap.mi) { spokenMonth = snap.mi; Voice.say(monthSpeech, 'mentor'); }
+  } else if (monthTab === 'com') {
+    body += `<div class="tiles">${tl(t('netRevenue'), snap.rev, pv('rev'), money)}${tl(t('netIncome'), snap.ni, pv('ni'), money, snap.ni >= 0)}${tl('EBITDA', snap.ebitda, pv('ebitda'), money, snap.ebitda >= 0, 'ebitda')}${tl(t('cash'), snap.cash, pv('cash'), money, prev ? snap.cash >= prev.cash : null, 'cash')}${tl('CCC', snap.ccc, pv('ccc'), x => x == null ? '—' : Math.round(x) + ' ' + t('days'), null, 'ccc')}${tl(t('kOtd'), snap.otd, pv('otd'), x => pct(x), null, 'otd')}${tl('FPY', snap.fpy, pv('fpy'), x => pct(x), null, 'fpy')}${tl(t('value'), snap.value, pv('value'), money)}</div>
     <div>${com.map(advLine).join('') || `<div class="muted">${t('noComments')}</div>`}</div>`;
     if (snap.m === 11) body += `<div class="lesson"><b>${t('yearReport', { y: snap.y + 1 })}</b><div class="small">${t('netRevenue')}: ${money(st.months.filter(x => x.y === snap.y).reduce((a, x) => a + x.rev, 0))} · ${t('netIncome')}: ${money(st.months.filter(x => x.y === snap.y).reduce((a, x) => a + x.ni, 0))} · ${t('value')}: ${money(snap.value)} · ${t('yourStake')}: ${money(snap.owner)}</div></div>`;
-  } else if (monthTab === 'pl') body += `<div class="tbl">${plTable([{ l: t('thisMonth'), M: E.movesRange(st, mi, mi) }, ...(mi > 0 ? [{ l: t('prevMonth'), M: E.movesRange(st, mi - 1, mi - 1) }] : []), { l: t('ytd'), M: E.movesRange(st, snap.y * 12, mi) }])}</div>`;
+  } else if (monthTab === 'pl') body += `${plWalkBtn(mi)}<div class="tbl">${plTable([{ l: t('thisMonth'), M: E.movesRange(st, mi, mi) }, ...(mi > 0 ? [{ l: t('prevMonth'), M: E.movesRange(st, mi - 1, mi - 1) }] : []), { l: t('ytd'), M: E.movesRange(st, snap.y * 12, mi) }], mi)}</div>`;
   else if (monthTab === 'bs') body += `<div class="tbl">${bsTable([{ l: t('thisMonth'), b: E.balanceAt(st, mi) }, ...(mi > 0 ? [{ l: t('prevMonth'), b: E.balanceAt(st, mi - 1) }] : [])])}</div>`;
   else body += `<div class="tbl">${cfTable([{ l: t('thisMonth'), c: E.cashFlow(st, mi, mi) }, { l: t('ytd'), c: E.cashFlow(st, snap.y * 12, mi) }])}</div>`;
   openModal(`${t('monthlyMeeting')} · ${t('month')} ${snap.m + 1} · ${t('year')} ${snap.y + 1}`, body, `<button class="btn primary" id="mmClose">${t('closeMonthly')}</button>`, { wide: true });
   document.querySelectorAll('[data-mt]').forEach(b => b.onclick = () => { monthTab = b.dataset.mt; openMonthly(snap); });
-  $('#mmClose').onclick = () => { monthTab = 'com'; closeModal(); st.pendingMonth = null; save(); };
+  $('#mmClose').onclick = () => { monthTab = 'coach'; monthlyReopen = null; closeModal(); st.pendingMonth = null; save(); };
 }
 
 /* ---------- menu, setup, game over ---------- */
@@ -4031,9 +5014,10 @@ function openMenu() {
   $('#mNew').onclick = () => confirmBox(t('newGame') + '?', openSetup);
   $('#mCopy').onclick = () => { const ta = $('#mTxt'); try { navigator.clipboard.writeText(ta.value).then(() => toast(t('copied')), () => { ta.select(); }); } catch (e) { ta.select(); } };
   $('#mLoad').onclick = () => { try { const d = JSON.parse($('#mTxt').value); if (!d.st || d.st.v !== 1) throw 0; st = d.st; lang = d.lang || lang; closeModal(); after(); } catch (e) { toast(t('badSave')); } };
+  if (!Cloud.avail && /^https?:$/.test(location.protocol)) { Cloud.checked = false; const w = $('#cWait'); if (w) w.textContent = t('cloudChecking'); Cloud.init().then(ok => { const w2 = document.getElementById('cWait'); if (!w2) return; if (ok) { renderHeader(); openMenu(); } else w2.textContent = t('cloudNone'); }); }
 }
 function cloudBox(setup) {
-  if (!Cloud.avail) return setup ? '' : `<h4>${t('cloud')}</h4><div class="small muted">${t('cloudNone')}</div>`;
+  if (!Cloud.avail) return setup ? '' : `<h4>${t('cloud')}</h4><div class="small muted" id="cWait">${Cloud.checked ? t('cloudNone') : t('cloudChecking')}</div>`;
   if (setup) return `<div class="card" style="margin-bottom:12px"><h4 style="margin-top:0">☁ ${t('cloudEnter')}</h4><div class="row"><input id="cCode" placeholder="RACK-XXXXX" autocapitalize="characters" autocomplete="off" style="flex:1;min-width:140px;text-transform:uppercase"><button class="btn" id="cUse">${t('cloudUse')}</button></div></div>`;
   const has = Cloud.code ? `<div class="tile good"><small>${t('cloudYour')}</small><b id="cMine" style="font-family:var(--f-mono);letter-spacing:.06em">${Cloud.code}</b></div><div class="small muted">${t('cloudWrite')}</div><div class="row"><button class="btn" id="cNow">${t('cloudSaveNow')}</button><button class="btn" id="cOff">${t('cloudOff')}</button></div>`
     : `<div class="row"><button class="btn primary" id="cNew">${t('cloudCreate')}</button></div>`;
@@ -4312,7 +5296,7 @@ function start(data) {
   Voice.init(); if (d && d.voice === false) Voice.on = false;
   if (d && d.st && d.st.v === 1) { st = d.st; lang = d.lang || 'es'; savedAt = d.savedAt || 0; if (data && data.tab) tab = data.tab; renderAll(); if (st.over) openGameOver(); else if (st.pendingMonth != null) openMonthly(); }
   else { renderShell(); openSetup(); }
-  Cloud.init().then(ok => { if (!ok) return; if (st) renderHeader(); else openSetup(); if (Cloud.code) Cloud.pull(); });
+  Cloud.init().then(ok => { if (!ok) return; if (st) renderHeader(); if (!st || (st.setup && document.getElementById('sGo') && !document.getElementById('cCode'))) openSetup(); if (Cloud.code) Cloud.pull(); });
 }
 let xrOk = { vr: false, ar: false, preview: false };
 function openVR() {
@@ -4338,7 +5322,7 @@ try {
 } catch (e) { start({}); }
 window.__rf = { get st() { return st; }, advance, renderAll, openDecision, setLang: l => { lang = l; save(); renderAll(); }, setTab: x => { tab = x; renderAll(); },
   get lang() { return lang; }, t, money, pct, dateLabel, decInfo, whoName, optLabel, OPTS, after, save, closeModal, bbData,
-  get lessonQ() { return lessonQ; }, portraitCanvas, Voice, sayAdvice, topComment, setupTip, dropLesson: k => { lessonQ = lessonQ.filter(x => x !== k); }, closeMonth: () => { st.pendingMonth = null; closeModal(); save(); }, Cloud, useCode };
+  get lessonQ() { return lessonQ; }, coachReading, coachSpeech, coachX, openExplain, openPlWalk, openPlRow, runOpt, get coachOpts() { return coachOpts; }, portraitCanvas, Voice, sayAdvice, topComment, setupTip, dropLesson: k => { lessonQ = lessonQ.filter(x => x !== k); }, closeMonth: () => { st.pendingMonth = null; closeModal(); save(); }, Cloud, useCode };
 })();
 
 </script>
